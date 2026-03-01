@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gm"
+version = "0.1.0"
+description = "CLI tool for adding music to a Navidrome instance"
+requires-python = ">=3.12"
+dependencies = [
+    "mutagen>=1.47",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "coverage>=7.0",
+]
+
+[project.scripts]
+gm = "gm.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["gm"]
+
+[tool.coverage.report]
+show_missing = true

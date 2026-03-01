@@ -1,0 +1,183 @@
+"""SQLite import log for tracking music imports."""
+
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+DB_PATH = Path("~/.local/share/gm/imports.db").expanduser()
+
+_CREATE_TABLE = """\
+CREATE TABLE IF NOT EXISTS imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    source TEXT NOT NULL,
+    artist TEXT NOT NULL DEFAULT '',
+    album TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    destination TEXT NOT NULL DEFAULT '',
+    file_hash TEXT NOT NULL DEFAULT '',
+    video_id TEXT NOT NULL DEFAULT ''
+)
+"""
+
+_CREATE_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_video_id ON imports (video_id)",
+    "CREATE INDEX IF NOT EXISTS idx_file_hash ON imports (file_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_destination ON imports (destination)",
+]
+
+
+@dataclass
+class ImportRecord:
+    timestamp: str = ""
+    source: str = ""
+    artist: str = ""
+    album: str = ""
+    title: str = ""
+    destination: str = ""
+    file_hash: str = ""
+    video_id: str = ""
+
+
+def _get_connection() -> sqlite3.Connection:
+    """Open (and initialize if needed) the import database."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute(_CREATE_TABLE)
+    for idx in _CREATE_INDEXES:
+        conn.execute(idx)
+    conn.commit()
+    return conn
+
+
+def record_import(record: ImportRecord) -> None:
+    """Insert an import record into the database."""
+    if not record.timestamp:
+        record.timestamp = datetime.now(timezone.utc).isoformat()
+    conn = _get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO imports (timestamp, source, artist, album, title, "
+            "destination, file_hash, video_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.timestamp,
+                record.source,
+                record.artist,
+                record.album,
+                record.title,
+                record.destination,
+                record.file_hash,
+                record.video_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def find_by_video_id(video_id: str) -> list[ImportRecord]:
+    """Look up imports by YouTube video ID."""
+    if not video_id:
+        return []
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT timestamp, source, artist, album, title, destination, "
+            "file_hash, video_id FROM imports WHERE video_id = ?",
+            (video_id,),
+        ).fetchall()
+        return [_row_to_record(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def find_by_hash(file_hash: str) -> list[ImportRecord]:
+    """Look up imports by file hash."""
+    if not file_hash:
+        return []
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT timestamp, source, artist, album, title, destination, "
+            "file_hash, video_id FROM imports WHERE file_hash = ?",
+            (file_hash,),
+        ).fetchall()
+        return [_row_to_record(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def find_by_destination(dest: str) -> list[ImportRecord]:
+    """Look up imports by destination path."""
+    if not dest:
+        return []
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT timestamp, source, artist, album, title, destination, "
+            "file_hash, video_id FROM imports WHERE destination = ?",
+            (dest,),
+        ).fetchall()
+        return [_row_to_record(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def recent_imports(limit: int = 20) -> list[ImportRecord]:
+    """Return recent imports, newest first."""
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT timestamp, source, artist, album, title, destination, "
+            "file_hash, video_id FROM imports ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_record(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def compute_file_hash(path: Path) -> str:
+    """Compute SHA-256 hash of a local file."""
+    sha = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def format_log(records: list[ImportRecord]) -> str:
+    """Format import records for display."""
+    if not records:
+        return "No imports found."
+    lines: list[str] = []
+    for r in records:
+        parts = [r.timestamp[:19]]
+        if r.artist:
+            parts.append(r.artist)
+        if r.album:
+            parts.append(f"/ {r.album}")
+        if r.title:
+            parts.append(f"- {r.title}")
+        if r.video_id:
+            parts.append(f"[{r.video_id}]")
+        lines.append("  ".join(parts))
+    return "\n".join(lines)
+
+
+def _row_to_record(row: tuple[str, ...]) -> ImportRecord:
+    """Convert a database row to an ImportRecord."""
+    return ImportRecord(
+        timestamp=row[0],
+        source=row[1],
+        artist=row[2],
+        album=row[3],
+        title=row[4],
+        destination=row[5],
+        file_hash=row[6],
+        video_id=row[7],
+    )
