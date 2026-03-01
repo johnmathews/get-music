@@ -61,7 +61,7 @@ gm help
 - `gm/files.py` — Local file/directory processing and scp transfer
 - `gm/metadata.py` — Audio metadata extraction (mutagen), user prompts, duplicate checks, artist/album lookup
 - `gm/history.py` — SQLite import log for tracking imports and duplicate detection
-- `gm/ssh.py` — Shared SSH utilities (ssh_run, SSH_HOST)
+- `gm/ssh.py` — Shared SSH utilities (ssh_run with optional `stream` mode, SSH_HOST)
 - `tests/` — pytest test suite (100% coverage)
 - `docs/usage.md` — Detailed usage documentation
 

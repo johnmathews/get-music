@@ -13,14 +13,21 @@ def quote_path(path: str) -> str:
     return shlex.quote(path)
 
 
-def ssh_run(command: str, *, check: bool = False) -> subprocess.CompletedProcess[str]:
+def ssh_run(command: str, *, check: bool = False, stream: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a command on the LXC via SSH."""
-    result = subprocess.run(
-        ["ssh", SSH_HOST, command],
-        capture_output=True, text=True, check=False,
-    )
-    if check and result.returncode != 0:
-        raise RuntimeError(
-            f"SSH command failed (exit {result.returncode}): {result.stderr.strip()}"
+    if stream:
+        result = subprocess.run(
+            ["ssh", SSH_HOST, command],
+            stdout=subprocess.DEVNULL, text=True, check=False,
         )
-    return result
+        completed = subprocess.CompletedProcess(result.args, result.returncode, "", "")
+    else:
+        completed = subprocess.run(
+            ["ssh", SSH_HOST, command],
+            capture_output=True, text=True, check=False,
+        )
+    if check and completed.returncode != 0:
+        raise RuntimeError(
+            f"SSH command failed (exit {completed.returncode}): {completed.stderr.strip()}"
+        )
+    return completed

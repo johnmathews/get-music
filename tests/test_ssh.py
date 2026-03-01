@@ -34,6 +34,20 @@ class TestSshRun:
             ssh_run("bad command", check=True)
 
 
+    @patch("gm.ssh.subprocess.run")
+    def test_stream_passes_stderr_to_terminal(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["ssh", SSH_HOST, "yt-dlp url"], returncode=0, stdout="", stderr=""
+        )
+        result = ssh_run("yt-dlp url", stream=True)
+        mock_run.assert_called_once_with(
+            ["ssh", SSH_HOST, "yt-dlp url"],
+            stdout=subprocess.DEVNULL, text=True, check=False,
+        )
+        assert result.stdout == ""
+        assert result.stderr == ""
+
+
 class TestQuotePath:
     """Test shell-safe path quoting."""
 

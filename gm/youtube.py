@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import uuid
 from pathlib import PurePosixPath
 
@@ -100,9 +101,9 @@ def handle_youtube(url: str) -> None:
     temp_dir = _make_temp_dir()
 
     # Create temp directory and download
-    ytdlp_cmd = " ".join(build_ytdlp_command(url, temp_dir))
+    ytdlp_cmd = shlex.join(build_ytdlp_command(url, temp_dir))
     ssh_run(f"mkdir -p {temp_dir}", check=True)
-    ssh_run(ytdlp_cmd, check=True)
+    ssh_run(ytdlp_cmd, check=True, stream=True)
 
     # Read metadata from info.json
     result = ssh_run(
