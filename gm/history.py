@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS imports (
     title TEXT NOT NULL DEFAULT '',
     destination TEXT NOT NULL DEFAULT '',
     file_hash TEXT NOT NULL DEFAULT '',
-    video_id TEXT NOT NULL DEFAULT ''
+    video_id TEXT NOT NULL DEFAULT '',
+    genre TEXT NOT NULL DEFAULT ''
 )
 """
 
@@ -28,6 +29,11 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_video_id ON imports (video_id)",
     "CREATE INDEX IF NOT EXISTS idx_file_hash ON imports (file_hash)",
     "CREATE INDEX IF NOT EXISTS idx_destination ON imports (destination)",
+    "CREATE INDEX IF NOT EXISTS idx_artist ON imports (artist)",
+]
+
+_MIGRATIONS = [
+    "ALTER TABLE imports ADD COLUMN genre TEXT NOT NULL DEFAULT ''",
 ]
 
 
@@ -41,6 +47,7 @@ class ImportRecord:
     destination: str = ""
     file_hash: str = ""
     video_id: str = ""
+    genre: str = ""
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -48,6 +55,11 @@ def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute(_CREATE_TABLE)
+    for migration in _MIGRATIONS:
+        try:
+            conn.execute(migration)
+        except sqlite3.OperationalError:
+            pass  # Column/index already exists
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
@@ -62,7 +74,7 @@ def record_import(record: ImportRecord) -> None:
     try:
         conn.execute(
             "INSERT INTO imports (timestamp, source, artist, album, title, "
-            "destination, file_hash, video_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "destination, file_hash, video_id, genre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.timestamp,
                 record.source,
@@ -72,6 +84,7 @@ def record_import(record: ImportRecord) -> None:
                 record.destination,
                 record.file_hash,
                 record.video_id,
+                record.genre,
             ),
         )
         conn.commit()
@@ -87,7 +100,7 @@ def find_by_video_id(video_id: str) -> list[ImportRecord]:
     try:
         rows = conn.execute(
             "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id FROM imports WHERE video_id = ?",
+            "file_hash, video_id, genre FROM imports WHERE video_id = ?",
             (video_id,),
         ).fetchall()
         return [_row_to_record(r) for r in rows]
@@ -103,7 +116,7 @@ def find_by_hash(file_hash: str) -> list[ImportRecord]:
     try:
         rows = conn.execute(
             "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id FROM imports WHERE file_hash = ?",
+            "file_hash, video_id, genre FROM imports WHERE file_hash = ?",
             (file_hash,),
         ).fetchall()
         return [_row_to_record(r) for r in rows]
@@ -119,7 +132,7 @@ def find_by_destination(dest: str) -> list[ImportRecord]:
     try:
         rows = conn.execute(
             "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id FROM imports WHERE destination = ?",
+            "file_hash, video_id, genre FROM imports WHERE destination = ?",
             (dest,),
         ).fetchall()
         return [_row_to_record(r) for r in rows]
@@ -133,7 +146,7 @@ def recent_imports(limit: int = 20) -> list[ImportRecord]:
     try:
         rows = conn.execute(
             "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id FROM imports ORDER BY id DESC LIMIT ?",
+            "file_hash, video_id, genre FROM imports ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [_row_to_record(r) for r in rows]
@@ -169,6 +182,22 @@ def format_log(records: list[ImportRecord]) -> str:
     return "\n".join(lines)
 
 
+def find_genre_by_artist(artist: str) -> str:
+    """Look up the most recent genre used for an artist."""
+    if not artist:
+        return ""
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT genre FROM imports WHERE artist = ? AND genre != '' "
+            "ORDER BY id DESC LIMIT 1",
+            (artist,),
+        ).fetchone()
+        return row[0] if row else ""
+    finally:
+        conn.close()
+
+
 def _row_to_record(row: tuple[str, ...]) -> ImportRecord:
     """Convert a database row to an ImportRecord."""
     return ImportRecord(
@@ -180,4 +209,5 @@ def _row_to_record(row: tuple[str, ...]) -> ImportRecord:
         destination=row[5],
         file_hash=row[6],
         video_id=row[7],
+        genre=row[8] if len(row) > 8 else "",
     )

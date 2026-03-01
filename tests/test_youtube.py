@@ -157,6 +157,7 @@ class TestMakeTempDir:
         assert dir2.startswith("/tmp/gm-download-")
 
 
+@patch("gm.youtube.find_genre_by_artist", return_value="")
 @patch("gm.youtube.write_metadata_ssh")
 @patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
 class TestHandleYoutube:
@@ -178,6 +179,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -241,6 +243,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
@@ -283,6 +286,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -315,6 +319,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -358,6 +363,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -398,6 +404,7 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
     ) -> None:
         first_meta = AudioMetadata(
             artist="Artist", album="YouTube", title="Song"

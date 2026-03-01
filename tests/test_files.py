@@ -151,6 +151,7 @@ class TestExtractAudio:
             extract_audio_from_video(video)
 
 
+@patch("gm.files.find_genre_by_artist", return_value="")
 @patch("gm.files.write_metadata")
 class TestHandleFile:
     """Test the full single-file processing flow."""
@@ -174,6 +175,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -216,6 +218,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -256,6 +259,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -274,7 +278,7 @@ class TestHandleFile:
         mock_scp.assert_not_called()
         mock_record.assert_not_called()
 
-    def test_skips_unsupported_file(self, mock_write_meta: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_skips_unsupported_file(self, mock_write_meta: MagicMock, mock_find_genre: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         f = tmp_path / "readme.txt"
         f.write_bytes(b"\x00")
         handle_file(f)
@@ -300,6 +304,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -337,6 +342,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -374,6 +380,7 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata

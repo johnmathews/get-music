@@ -12,6 +12,7 @@ from gm.metadata import (
     AudioMetadata,
     check_destination_exists,
     check_video_id_exists,
+    humanize_name,
     list_existing_albums,
     list_existing_artists,
     prompt_batch_metadata,
@@ -25,6 +26,25 @@ from gm.metadata import (
     suggest_match,
     build_destination_path,
 )
+
+
+class TestHumanizeName:
+    """Test converting hyphenated names back to spaces."""
+
+    def test_converts_hyphens_to_spaces(self) -> None:
+        assert humanize_name("Yussef-Dayes") == "Yussef Dayes"
+
+    def test_converts_multiple_hyphens(self) -> None:
+        assert humanize_name("Led-Zeppelin-IV") == "Led Zeppelin IV"
+
+    def test_preserves_plain_name(self) -> None:
+        assert humanize_name("Radiohead") == "Radiohead"
+
+    def test_preserves_spaces(self) -> None:
+        assert humanize_name("Led Zeppelin") == "Led Zeppelin"
+
+    def test_empty_string(self) -> None:
+        assert humanize_name("") == ""
 
 
 class TestSanitizeFilename:
@@ -399,24 +419,40 @@ class TestPromptMetadataWithSuggestion:
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
     @patch("builtins.input", side_effect=[
-        "Led Zeppelin",  # artist prompt
-        "y",             # "Did you mean 'Led-Zeppelin'?"
+        "Led Zeppelin",  # artist prompt — matches Led-Zeppelin, no suggestion needed
         "IV",            # album prompt
         "Stairway",      # title prompt
         "Rock",          # genre prompt
         "1971",          # date prompt
     ])
-    def test_suggests_artist_match(
+    def test_silent_match_when_humanized_equals_input(
         self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
-        assert result.artist == "Led-Zeppelin"
+        assert result.artist == "Led Zeppelin"
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
     @patch("builtins.input", side_effect=[
-        "Led Zeppelin",  # artist prompt
+        "Led Zeplin",    # artist prompt — typo, fuzzy matches Led-Zeppelin
+        "y",             # "Did you mean 'Led Zeppelin'?"
+        "IV",            # album prompt
+        "Stairway",      # title prompt
+        "Rock",          # genre prompt
+        "1971",          # date prompt
+    ])
+    def test_suggests_humanized_match_for_typo(
+        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+    ) -> None:
+        defaults = AudioMetadata()
+        result = prompt_metadata(defaults)
+        assert result.artist == "Led Zeppelin"
+
+    @patch("gm.metadata.list_existing_albums", return_value=[])
+    @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
+    @patch("builtins.input", side_effect=[
+        "Led Zeplin",    # artist prompt — typo
         "n",             # reject suggestion
         "IV",            # album prompt
         "Stairway",      # title prompt
@@ -428,7 +464,7 @@ class TestPromptMetadataWithSuggestion:
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
-        assert result.artist == "Led Zeppelin"
+        assert result.artist == "Led Zeplin"
 
 
 class TestPromptBatchMetadata:
@@ -573,7 +609,7 @@ class TestWriteMetadataSsh:
         assert "-metadata album=YouTube" in cmd
         assert "-metadata title=Song" in cmd
         assert "-c copy" in cmd
-        assert ".gm-tmp" in cmd
+        assert "Song.gm-tmp.opus" in cmd
 
     @patch("gm.metadata.ssh_run")
     def test_skips_empty_metadata(self, mock_ssh: MagicMock) -> None:
@@ -591,7 +627,7 @@ class TestWriteMetadataSsh:
         assert mock_ssh.call_count == 2
         cleanup_cmd = mock_ssh.call_args_list[1][0][0]
         assert "rm -f" in cleanup_cmd
-        assert ".gm-tmp" in cleanup_cmd
+        assert "Song.gm-tmp.opus" in cleanup_cmd
 
     @patch("gm.metadata.ssh_run")
     def test_includes_all_fields(self, mock_ssh: MagicMock) -> None:

@@ -14,6 +14,7 @@ from gm.history import (
     find_by_video_id,
     find_by_hash,
     find_by_destination,
+    find_genre_by_artist,
     recent_imports,
     compute_file_hash,
     format_log,
@@ -72,6 +73,40 @@ class TestRecordAndFind:
 
     def test_find_by_destination_empty_returns_empty(self) -> None:
         assert find_by_destination("") == []
+
+
+class TestFindGenreByArtist:
+    """Test genre lookup by artist."""
+
+    def test_returns_genre_for_known_artist(self) -> None:
+        record_import(ImportRecord(
+            source="s1", artist="Miles Davis", title="So What", genre="Jazz",
+        ))
+        assert find_genre_by_artist("Miles Davis") == "Jazz"
+
+    def test_returns_most_recent_genre(self) -> None:
+        record_import(ImportRecord(
+            source="s1", artist="Artist", title="Old", genre="Rock",
+        ))
+        record_import(ImportRecord(
+            source="s2", artist="Artist", title="New", genre="Electronic",
+        ))
+        assert find_genre_by_artist("Artist") == "Electronic"
+
+    def test_skips_empty_genre(self) -> None:
+        record_import(ImportRecord(
+            source="s1", artist="Artist", title="With Genre", genre="Jazz",
+        ))
+        record_import(ImportRecord(
+            source="s2", artist="Artist", title="No Genre", genre="",
+        ))
+        assert find_genre_by_artist("Artist") == "Jazz"
+
+    def test_returns_empty_for_unknown_artist(self) -> None:
+        assert find_genre_by_artist("Unknown") == ""
+
+    def test_returns_empty_for_empty_artist(self) -> None:
+        assert find_genre_by_artist("") == ""
 
 
 class TestRecentImports:

@@ -6,7 +6,7 @@ import difflib
 import re
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import mutagen
 
@@ -28,6 +28,14 @@ class AudioMetadata:
 
 
 _UNSAFE_CHARS = re.compile(r"""[/\\:\x00 '"` \$\?\*<>\|;&\(\)\n\t\r]""")
+
+
+def humanize_name(name: str) -> str:
+    """Convert a hyphenated filename-style name back to spaces for metadata.
+
+    Filesystem paths use sanitize_filename for the reverse.
+    """
+    return name.replace("-", " ")
 
 
 def sanitize_filename(name: str) -> str:
@@ -151,7 +159,8 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
     if not metadata_args:
         return
 
-    tmp = f"{dest}.gm-tmp"
+    p = PurePosixPath(dest)
+    tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
     ffmpeg_cmd = shlex.join(
         ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
         + metadata_args
@@ -215,10 +224,14 @@ def suggest_match(user_input: str, existing: list[str]) -> str:
 def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     """Check for a match and prompt the user if found. Returns final value."""
     match = suggest_match(user_input, existing)
-    if match and match != user_input:
-        confirm = input(f"  Did you mean '{match}'? [Y/n]: ").strip().lower()
-        if confirm != "n":
-            return match
+    if not match or match == user_input:
+        return user_input
+    humanized = humanize_name(match)
+    if humanized == user_input:
+        return user_input  # Directory exists; user input already correct
+    confirm = input(f"  Did you mean '{humanized}'? [Y/n]: ").strip().lower()
+    if confirm != "n":
+        return humanized
     return user_input
 
 

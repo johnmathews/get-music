@@ -12,13 +12,14 @@ from gm.metadata import (
     build_destination_path,
     check_destination_exists,
     check_video_id_exists,
+    humanize_name,
     prompt_duplicate_action,
     prompt_metadata,
     sanitize_filename,
     write_metadata_ssh,
     MUSIC_ROOT,
 )
-from gm.history import ImportRecord, record_import, find_by_video_id
+from gm.history import ImportRecord, record_import, find_by_video_id, find_genre_by_artist
 from gm.ssh import ssh_run, SSH_HOST, quote_path
 
 def _make_temp_dir() -> str:
@@ -85,9 +86,9 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
         date = upload_date
 
     return AudioMetadata(
-        artist=artist,
-        album=album,
-        title=title,
+        artist=humanize_name(artist),
+        album=humanize_name(album),
+        title=humanize_name(title),
         genre=genre,
         date=date,
         description=description,
@@ -128,6 +129,10 @@ def handle_youtube(url: str) -> None:
         f"-o -name '*.webp' \\) | head -1"
     )
     thumb_file = thumb_result.stdout.strip()
+
+    # Fill in genre from previous imports by the same artist
+    if not defaults.genre and defaults.artist:
+        defaults.genre = find_genre_by_artist(defaults.artist)
 
     # Prompt user for metadata
     meta = prompt_metadata(defaults)
@@ -184,6 +189,7 @@ def handle_youtube(url: str) -> None:
         title=meta.title,
         destination=dest,
         video_id=video_id,
+        genre=meta.genre,
     ))
 
     print(f"Done! Saved to: {dest}")
