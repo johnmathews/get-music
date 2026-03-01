@@ -3,8 +3,7 @@
 ## Installation
 
 ```bash
-cd get-music
-pip install -e ".[dev]"
+uv tool install -e /path/to/get-music
 ```
 
 **Note:** The `gm` command may conflict with a shell alias (e.g., `gm = git merge`). If so, either unalias it or invoke

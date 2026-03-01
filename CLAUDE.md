@@ -56,28 +56,33 @@ gm help
 
 ## Project Structure
 
-- `src/gm/cli.py` — Argument parsing and input routing
-- `src/gm/youtube.py` — YouTube download via SSH + yt-dlp on LXC
-- `src/gm/files.py` — Local file/directory processing and scp transfer
-- `src/gm/metadata.py` — Audio metadata extraction (mutagen), user prompts, duplicate checks, artist/album lookup
-- `src/gm/history.py` — SQLite import log for tracking imports and duplicate detection
-- `src/gm/ssh.py` — Shared SSH utilities (ssh_run, SSH_HOST)
+- `gm/cli.py` — Argument parsing and input routing
+- `gm/youtube.py` — YouTube download via SSH + yt-dlp on LXC
+- `gm/files.py` — Local file/directory processing and scp transfer
+- `gm/metadata.py` — Audio metadata extraction (mutagen), user prompts, duplicate checks, artist/album lookup
+- `gm/history.py` — SQLite import log for tracking imports and duplicate detection
+- `gm/ssh.py` — Shared SSH utilities (ssh_run, SSH_HOST)
 - `tests/` — pytest test suite (100% coverage)
 - `docs/usage.md` — Detailed usage documentation
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"     # Install with dev dependencies
-pytest                      # Run tests
-pytest -v                   # Run tests with verbose output
-coverage run -m pytest      # Run tests with coverage
-coverage html               # Generate HTML coverage report
+uv sync                              # Install dependencies
+uv run pytest                        # Run tests
+uv run pytest -v                     # Run tests with verbose output
+uv run coverage run -m pytest        # Run tests with coverage
+uv run coverage html                 # Generate HTML coverage report
+```
+
+### Installation
+
+```bash
+uv tool install -e .                 # Install gm command on PATH
 ```
 
 ## Conventions
 
 - Type annotations required on all Python code
 - TDD workflow: write tests before implementation
-- `src/` layout to prevent accidental imports of uninstalled code
 - All SSH commands use `shlex.quote()` via `quote_path()` for defense-in-depth against shell injection from filenames

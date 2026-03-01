@@ -5,7 +5,7 @@ CLI tool for adding music to a self-hosted [Navidrome](https://www.navidrome.org
 ## Install
 
 ```bash
-pip install -e .
+uv tool install -e .
 ```
 
 ## Usage
@@ -41,9 +41,9 @@ gm help                                            # show help
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest
-coverage run -m pytest && coverage html
+uv sync
+uv run pytest
+uv run coverage run -m pytest && uv run coverage html
 ```
 
 See [docs/usage.md](docs/usage.md) for detailed usage documentation.
