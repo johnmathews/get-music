@@ -19,6 +19,7 @@ from gm.metadata import (
     prompt_title_only,
     read_metadata,
     write_metadata,
+    write_metadata_ssh,
     prompt_metadata,
     sanitize_filename,
     suggest_match,
@@ -555,3 +556,55 @@ class TestWriteMetadata:
         meta = AudioMetadata(artist="Artist", title="Song")
         # Should not raise even if save fails
         write_metadata(tmp_path / "song.mp3", meta)
+
+
+class TestWriteMetadataSsh:
+    """Test SSH-based metadata writing via ffmpeg."""
+
+    @patch("gm.metadata.ssh_run")
+    def test_writes_metadata_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
+        assert "ffmpeg" in cmd
+        assert "-metadata artist=Artist" in cmd
+        assert "-metadata album=YouTube" in cmd
+        assert "-metadata title=Song" in cmd
+        assert "-c copy" in cmd
+        assert ".gm-tmp" in cmd
+
+    @patch("gm.metadata.ssh_run")
+    def test_skips_empty_metadata(self, mock_ssh: MagicMock) -> None:
+        meta = AudioMetadata()
+        write_metadata_ssh("/mnt/nfs/music/A/B/C.opus", meta)
+        mock_ssh.assert_not_called()
+
+    @patch("gm.metadata.ssh_run")
+    def test_cleans_up_on_failure(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "error")
+        meta = AudioMetadata(artist="Artist", album="YouTube")
+        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+
+        # First call is ffmpeg, second is rm cleanup
+        assert mock_ssh.call_count == 2
+        cleanup_cmd = mock_ssh.call_args_list[1][0][0]
+        assert "rm -f" in cleanup_cmd
+        assert ".gm-tmp" in cleanup_cmd
+
+    @patch("gm.metadata.ssh_run")
+    def test_includes_all_fields(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(
+            artist="A", album="B", title="C", genre="Rock", date="2024", track_number="5",
+        )
+        write_metadata_ssh("/mnt/nfs/music/A/B/C.opus", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
+        assert "-metadata artist=A" in cmd
+        assert "-metadata album=B" in cmd
+        assert "-metadata title=C" in cmd
+        assert "-metadata genre=Rock" in cmd
+        assert "-metadata date=2024" in cmd
+        assert "-metadata track=5" in cmd

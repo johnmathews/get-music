@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -127,6 +128,38 @@ def write_metadata(path: Path, meta: AudioMetadata) -> None:
         audio.save()
     except Exception:
         pass
+
+
+def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
+    """Write metadata tags into an audio file on the LXC using ffmpeg.
+
+    Best-effort: failures are silently ignored since the file is already
+    in place with yt-dlp's embedded metadata.
+    """
+    metadata_args: list[str] = []
+    for attr, tag in [
+        ("artist", "artist"),
+        ("album", "album"),
+        ("title", "title"),
+        ("genre", "genre"),
+        ("date", "date"),
+        ("track_number", "track"),
+    ]:
+        value = getattr(meta, attr, "")
+        if value:
+            metadata_args.extend(["-metadata", f"{tag}={value}"])
+    if not metadata_args:
+        return
+
+    tmp = f"{dest}.gm-tmp"
+    ffmpeg_cmd = shlex.join(
+        ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
+        + metadata_args
+        + [tmp]
+    )
+    result = ssh_run(f"{ffmpeg_cmd} && mv {quote_path(tmp)} {quote_path(dest)}")
+    if result.returncode != 0:
+        ssh_run(f"rm -f {quote_path(tmp)}")
 
 
 def list_existing_artists() -> list[str]:

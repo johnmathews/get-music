@@ -15,6 +15,7 @@ from gm.metadata import (
     prompt_duplicate_action,
     prompt_metadata,
     sanitize_filename,
+    write_metadata_ssh,
     MUSIC_ROOT,
 )
 from gm.history import ImportRecord, record_import, find_by_video_id
@@ -63,7 +64,7 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
-        return AudioMetadata(album="Singles")
+        return AudioMetadata(album="YouTube")
 
     artist = data.get("artist", "") or data.get("uploader", "") or ""
     # Strip " - Topic" suffix from auto-generated YouTube Music channels
@@ -71,7 +72,7 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
         artist = artist[: -len(" - Topic")]
 
     title = data.get("title", "") or ""
-    album = data.get("album", "") or "Singles"
+    album = data.get("album", "") or "YouTube"
     genre = data.get("genre", "") or ""
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
@@ -162,6 +163,9 @@ def handle_youtube(url: str) -> None:
     # Move file to final destination
     ssh_run(f"mkdir -p {quote_path(dest_dir)}", check=True)
     ssh_run(f"mv {quote_path(audio_file)} {quote_path(dest)}", check=True)
+
+    # Write user-confirmed metadata into the audio file
+    write_metadata_ssh(dest, meta)
 
     # Embed thumbnail if available
     if thumb_file:

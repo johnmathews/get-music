@@ -107,12 +107,12 @@ class TestParseYtdlpMetadata:
     def test_defaults_album_to_singles(self) -> None:
         data = {"uploader": "Artist", "title": "Song"}
         meta = parse_ytdlp_metadata(json.dumps(data))
-        assert meta.album == "Singles"
+        assert meta.album == "YouTube"
 
     def test_handles_empty_json(self) -> None:
         meta = parse_ytdlp_metadata("{}")
         assert meta.artist == ""
-        assert meta.album == "Singles"
+        assert meta.album == "YouTube"
         assert meta.title == ""
 
     def test_strips_topic_suffix_from_uploader(self) -> None:
@@ -141,7 +141,7 @@ class TestParseYtdlpMetadata:
 
     def test_handles_invalid_json(self) -> None:
         meta = parse_ytdlp_metadata("not valid json {{{")
-        assert meta.album == "Singles"
+        assert meta.album == "YouTube"
         assert meta.artist == ""
         assert meta.title == ""
 
@@ -157,6 +157,7 @@ class TestMakeTempDir:
         assert dir2.startswith("/tmp/gm-download-")
 
 
+@patch("gm.youtube.write_metadata_ssh")
 @patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
 class TestHandleYoutube:
     """Test the full YouTube download flow."""
@@ -176,6 +177,7 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -195,7 +197,7 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
         mock_prompt.return_value = AudioMetadata(
-            artist="Real Artist", album="Singles", title="Song"
+            artist="Real Artist", album="YouTube", title="Song"
         )
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -207,7 +209,13 @@ class TestHandleYoutube:
 
         # Verify file was moved with video ID in brackets, no spaces, native extension
         mv_call_cmd = mock_ssh.call_args_list[6][0][0]
-        assert "/mnt/nfs/music/Real-Artist/Singles/Song-[abc123].opus" in mv_call_cmd
+        assert "/mnt/nfs/music/Real-Artist/YouTube/Song-[abc123].opus" in mv_call_cmd
+
+        # Verify metadata was written back to the audio file
+        mock_write_meta.assert_called_once()
+        write_dest, write_meta = mock_write_meta.call_args[0]
+        assert "/mnt/nfs/music/Real-Artist/YouTube/Song-[abc123].opus" == write_dest
+        assert write_meta.album == "YouTube"
 
         # Verify import was logged
         mock_record.assert_called_once()
@@ -232,6 +240,7 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
@@ -247,10 +256,10 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup on skip)
         ]
         mock_prompt.return_value = AudioMetadata(
-            artist="Real Artist", album="Singles", title="Song"
+            artist="Real Artist", album="YouTube", title="Song"
         )
         mock_find_vid.return_value = [
-            ImportRecord(destination="/mnt/nfs/music/Real-Artist/Singles/Song-[abc123].opus"),
+            ImportRecord(destination="/mnt/nfs/music/Real-Artist/YouTube/Song-[abc123].opus"),
         ]
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -273,6 +282,7 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -283,7 +293,7 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "\n", ""),  # find audio — empty
         ]
         mock_prompt.return_value = AudioMetadata(
-            artist="Channel", album="Singles", title="Song"
+            artist="Channel", album="YouTube", title="Song"
         )
 
         with pytest.raises(RuntimeError, match="No audio file found"):
@@ -304,6 +314,7 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -319,7 +330,7 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
         mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Singles", title="Song"
+            artist="Artist", album="YouTube", title="Song"
         )
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -346,6 +357,7 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -360,7 +372,7 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
         mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Singles", title="Song"
+            artist="Artist", album="YouTube", title="Song"
         )
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -385,9 +397,10 @@ class TestHandleYoutube:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
     ) -> None:
         first_meta = AudioMetadata(
-            artist="Artist", album="Singles", title="Song"
+            artist="Artist", album="YouTube", title="Song"
         )
         renamed_meta = AudioMetadata(
             artist="Artist", album="Other-Album", title="New-Song"

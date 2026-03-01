@@ -93,7 +93,7 @@ For every file processed, you'll be shown the detected metadata and can accept d
 ```
 Metadata (press Enter to accept default):
   Artist [Channel Name]: Actual Artist
-  Album [Singles]: Album Name
+  Album [YouTube]: Album Name
   Title [Video Title]:
   Genre []:
   Date []:
@@ -102,7 +102,7 @@ Metadata (press Enter to accept default):
 - Press Enter to accept the value in brackets
 - Type a new value to override
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
-- Album defaults to "Singles" when not detected
+- Album defaults to "YouTube" when not detected from a YouTube download
 
 ### Artist/Album Suggestions
 
@@ -161,7 +161,7 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 │   ├── Album-Name/
 │   │   ├── Song-Title.flac
 │   │   └── cover.jpg
-│   └── Singles/
+│   └── YouTube/
 │       └── Another-Song-[dQw4w9WgXcQ].opus
 ```
 
