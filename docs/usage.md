@@ -7,7 +7,8 @@ cd get-music
 pip install -e ".[dev]"
 ```
 
-**Note:** The `gm` command may conflict with a shell alias (e.g., `gm = git merge`). If so, either unalias it or invoke via `python -m gm.cli`.
+**Note:** The `gm` command may conflict with a shell alias (e.g., `gm = git merge`). If so, either unalias it or invoke
+via `python -m gm.cli`.
 
 ### Prerequisites
 
@@ -24,9 +25,11 @@ gm https://youtu.be/dQw4w9WgXcQ
 gm https://music.youtube.com/watch?v=abc123
 ```
 
-This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and prompts you to confirm/override. The file is placed at `/mnt/nfs/music/Artist/Album/Title-[video_id].opus`.
+This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and
+prompts you to confirm/override. The file is placed at `/mnt/nfs/music/Artist/Album/Title-[video_id].opus`.
 
 YouTube downloads include:
+
 - Embedded metadata (`--embed-metadata`)
 - Embedded thumbnail (`--embed-thumbnail`)
 - Video ID in the filename in square brackets for deduplication
@@ -40,7 +43,8 @@ gm ~/Downloads/song.flac
 gm ~/Downloads/video.mp4
 ```
 
-Audio files are read for metadata (via mutagen) and transferred via `scp`. Video files have their audio extracted first using `ffmpeg`, then transferred.
+Audio files are read for metadata (via mutagen) and transferred via `scp`. Video files have their audio extracted first
+using `ffmpeg`, then transferred.
 
 ### Process a directory
 
@@ -64,9 +68,11 @@ Shared metadata for all files (press Enter to leave empty):
   Title [Black Dog]:
 ```
 
-Each file gets automatic track numbering and only prompts for the title. Shared fields (artist, album, genre, date) are set once for the whole batch.
+Each file gets automatic track numbering and only prompts for the title. Shared fields (artist, album, genre, date) are
+set once for the whole batch.
 
-If a file fails during batch import (e.g., transfer error), `gm` logs the error and continues with the remaining files. A summary of successes and failures is printed at the end.
+If a file fails during batch import (e.g., transfer error), `gm` logs the error and continues with the remaining files. A
+summary of successes and failures is printed at the end.
 
 ### View import history
 
@@ -109,6 +115,7 @@ When you type an artist or album name, `gm` checks existing directories on the s
 ```
 
 This prevents library fragmentation by catching:
+
 - **Spaces vs hyphens:** "Led Zeppelin" → matches "Led-Zeppelin"
 - **Typos:** "Led Zeplin" → fuzzy matches "Led-Zeppelin"
 - **Case differences:** "led zeppelin" → matches "Led-Zeppelin"
@@ -132,14 +139,17 @@ When a duplicate is found:
 
 - **Skip** (default): don't transfer, move on to the next file
 - **Overwrite**: replace the existing file
-- **Rename**: re-prompts for all metadata fields so you can choose a different artist, album, or title — the file is then saved to the new destination
+- **Rename**: re-prompts for all metadata fields so you can choose a different artist, album, or title — the file is then
+  saved to the new destination
 
 ## Supported Formats
 
 ### Audio (processed directly)
+
 mp3, flac, ogg, m4a, wav, opus, aac, wma
 
 ### Video (audio extracted first)
+
 mp4, mkv, avi, webm, mov
 
 ## File Organization
@@ -157,7 +167,8 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 ```
 
 - Spaces are replaced with hyphens in all path components
-- Unsafe characters are replaced with hyphens: `/`, `\`, `:`, null bytes, `'`, `"`, `` ` ``, `$`, `?`, `*`, `<`, `>`, `|`, `;`, `&`, `(`, `)`, newlines, tabs
+- Unsafe characters are replaced with hyphens: `/`, `\`, `:`, null bytes, `'`, `"`, `` ` ``, `$`, `?`, `*`, `<`, `>`,
+  `|`, `;`, `&`, `(`, `)`, newlines, tabs
 - Multiple consecutive hyphens are collapsed to one
 - YouTube downloads include the video ID in square brackets before the extension
 
