@@ -1,48 +1,42 @@
 # gm (get music)
 
-CLI tool for adding music to a Navidrome instance. Accepts YouTube URLs, local audio/video files, or directories.
+CLI tool for adding music to a self-hosted [Navidrome](https://www.navidrome.org/) instance.
 
-## Quick Start
+## Install
 
 ```bash
-pip install -e ".[dev]"
-
-gm https://www.youtube.com/watch?v=dQw4w9WgXcQ
-gm ~/Downloads/song.mp3
-gm ~/Downloads/album/
-gm log
-gm help
+pip install -e .
 ```
 
-## How It Works
+## Usage
 
-- **YouTube URLs** are downloaded via SSH on the LXC using `yt-dlp` (audio-only, native format), so files land directly on the NFS mount
-- **Local files** are processed on the Mac and transferred via `scp`
-- **Video files** have audio extracted via `ffmpeg` before transfer
-- **Directories** prompt for shared metadata (artist, album, genre, date) once, then per-file title only
-- All files are organized as `Artist/Album/Title` under `/mnt/nfs/music/` with hyphens instead of spaces
+```bash
+gm https://www.youtube.com/watch?v=dQw4w9WgXcQ   # YouTube URL
+gm ~/Downloads/song.flac                           # single file
+gm ~/Downloads/album/                              # directory
+gm log                                             # view import history
+gm help                                            # show help
+```
+
+**YouTube** — downloads audio in its native format via `yt-dlp`, embeds metadata and thumbnails, and places the file on the server with the video ID in the filename.
+
+**Files** — reads metadata with [mutagen](https://mutagen.readthedocs.io/), prompts you to confirm or edit, then transfers via `scp`. Video files have audio extracted with `ffmpeg` first.
+
+**Directories** — prompts for shared metadata (artist, album, genre, date) once, then only asks for the title per file. Automatic track numbering.
 
 ## Features
 
-- **Duplicate detection** — checks the local import log (by file hash or YouTube video ID), then the remote filesystem before transferring. Prompts to skip, overwrite, or rename.
-- **Artist/album lookup** — fuzzy-matches your input against existing directories on the server. Catches typos like "Led Zeplin" → "Led-Zeppelin" and normalizes spaces to hyphens automatically.
-- **Batch directory import** — shared metadata prompted once for an entire directory, with automatic track numbering and per-file title prompts.
-- **Import log** — all imports are recorded in a local SQLite database (`~/.local/share/gm/imports.db`). View with `gm log`.
-- **Metadata embedding** — YouTube downloads include embedded metadata and thumbnails via `yt-dlp --embed-metadata --embed-thumbnail`.
-- **Native audio format** — YouTube audio is kept in its native format (usually opus); Navidrome transcodes on the fly.
-
-## Infrastructure
-
-- Navidrome runs on an LXC on a Proxmox server
-- SSH access: `ssh music` (home network) or `ssh musict` (remote)
-- Music stored at `/mnt/nfs/music/` (NFS mount to TrueNAS `music` dataset on `tank` HDD pool)
+- **Duplicate detection** — checks a local import log and the remote filesystem before transferring. Prompts to skip, overwrite, or rename.
+- **Artist/album suggestions** — fuzzy-matches your input against existing directories on the server to prevent fragmentation.
+- **Import log** — all imports recorded locally. View with `gm log`.
+- **Native audio format** — keeps the original format from YouTube (usually opus). No unnecessary transcoding.
 
 ## Prerequisites
 
-| Where | What |
-|-------|------|
-| Mac | Python 3.12+, `ffmpeg`, SSH config for `music` host |
-| LXC | `yt-dlp`, `ffmpeg` |
+- Python 3.12+
+- `ffmpeg` (local, for video-to-audio extraction)
+- SSH access to the Navidrome server configured as the `music` host
+- `yt-dlp` and `ffmpeg` on the server
 
 ## Development
 

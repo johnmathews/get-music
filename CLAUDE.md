@@ -17,10 +17,28 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 ## Tool Design
 
 - Written in Python with a shell wrapper for terminal invocation
-- Uses `yt-dlp` for YouTube downloads (audio, artwork, metadata)
-- Must check whether Navidrome supports video file playback — if not, download audio-only from YouTube and convert video
-  files accordingly
-- Directory input should prompt whether to search recursively
+- Uses `yt-dlp` on the LXC (via SSH) for YouTube downloads — audio, artwork, metadata
+- Navidrome is audio-only — always extract audio from video files
+- YouTube audio kept in native format (usually opus); Navidrome transcodes on the fly
+- Local files transferred to LXC via `scp`; YouTube files download directly to NFS mount
+- No spaces in filenames — use hyphens (e.g., `Led-Zeppelin/Led-Zeppelin-IV/Stairway-To-Heaven.opus`)
+- YouTube video ID in square brackets at end of filename: `Song-[dQw4w9WgXcQ].opus`
+- Directory input prompts whether to search recursively
+
+## Key Features
+
+- **Duplicate detection** — three layers: local SQLite log (by file hash or video ID), SSH filesystem scan for video ID, destination path existence check. Prompts skip/overwrite/rename.
+- **Artist/album lookup** — fuzzy-matches user input against existing server directories using `difflib.get_close_matches`. Catches typos and normalizes spaces to hyphens.
+- **Batch directory import** — shared metadata (artist, album, genre, date) prompted once, per-file title-only prompt with automatic track numbering.
+- **Import log** — SQLite at `~/.local/share/gm/imports.db`. Records timestamp, source, artist, album, title, destination, file_hash, video_id.
+- **Metadata embedding** — `yt-dlp --embed-metadata --embed-thumbnail --write-info-json`
+
+## Prerequisites
+
+| Where | What |
+|-------|------|
+| Mac | Python 3.12+, `ffmpeg`, SSH config for `music` host |
+| LXC | `yt-dlp`, `ffmpeg` |
 
 ## Usage
 
@@ -58,4 +76,3 @@ coverage html               # Generate HTML coverage report
 - Type annotations required on all Python code
 - TDD workflow: write tests before implementation
 - `src/` layout to prevent accidental imports of uninstalled code
-- Navidrome is audio-only — always extract audio from video files
