@@ -66,6 +66,8 @@ Shared metadata for all files (press Enter to leave empty):
 
 Each file gets automatic track numbering and only prompts for the title. Shared fields (artist, album, genre, date) are set once for the whole batch.
 
+If a file fails during batch import (e.g., transfer error), `gm` logs the error and continues with the remaining files. A summary of successes and failures is printed at the end.
+
 ### View import history
 
 ```bash
@@ -130,7 +132,7 @@ When a duplicate is found:
 
 - **Skip** (default): don't transfer, move on to the next file
 - **Overwrite**: replace the existing file
-- **Rename**: proceed with the new metadata (useful if you want to re-categorize)
+- **Rename**: re-prompts for all metadata fields so you can choose a different artist, album, or title — the file is then saved to the new destination
 
 ## Supported Formats
 
@@ -155,7 +157,7 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 ```
 
 - Spaces are replaced with hyphens in all path components
-- Unsafe characters (`/`, `\`, `:`, null bytes) are replaced with hyphens
+- Unsafe characters are replaced with hyphens: `/`, `\`, `:`, null bytes, `'`, `"`, `` ` ``, `$`, `?`, `*`, `<`, `>`, `|`, `;`, `&`, `(`, `)`, newlines, tabs
 - Multiple consecutive hyphens are collapsed to one
 - YouTube downloads include the video ID in square brackets before the extension
 

@@ -76,3 +76,4 @@ coverage html               # Generate HTML coverage report
 - Type annotations required on all Python code
 - TDD workflow: write tests before implementation
 - `src/` layout to prevent accidental imports of uninstalled code
+- All SSH commands use `shlex.quote()` via `quote_path()` for defense-in-depth against shell injection from filenames

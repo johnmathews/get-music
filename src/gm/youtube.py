@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import PurePosixPath
 
 from gm.metadata import (
@@ -16,9 +17,11 @@ from gm.metadata import (
     MUSIC_ROOT,
 )
 from gm.history import ImportRecord, record_import, find_by_video_id
-from gm.ssh import ssh_run, SSH_HOST
+from gm.ssh import ssh_run, SSH_HOST, quote_path
 
-TEMP_DIR = "/tmp/gm-download"
+def _make_temp_dir() -> str:
+    """Generate a unique temp directory path for a download."""
+    return f"/tmp/gm-download-{uuid.uuid4().hex[:12]}"
 
 
 def extract_video_id(url: str) -> str:
@@ -39,16 +42,17 @@ def extract_video_id(url: str) -> str:
     return ""
 
 
-def build_ytdlp_command(url: str) -> list[str]:
+def build_ytdlp_command(url: str, temp_dir: str) -> list[str]:
     """Build the yt-dlp command for best-quality audio with embedded metadata."""
     return [
         "yt-dlp",
+        "--no-playlist",
         "--extract-audio",
         "--audio-quality", "0",
         "--embed-metadata",
         "--embed-thumbnail",
         "--write-info-json",
-        "--output", f"{TEMP_DIR}/%(title)s.%(ext)s",
+        "--output", f"{temp_dir}/%(title)s.%(ext)s",
         url,
     ]
 
@@ -93,20 +97,22 @@ def handle_youtube(url: str) -> None:
     """Download audio from YouTube URL via SSH + yt-dlp on LXC."""
     print(f"Downloading from YouTube: {url}")
 
+    temp_dir = _make_temp_dir()
+
     # Create temp directory and download
-    ytdlp_cmd = " ".join(build_ytdlp_command(url))
-    ssh_run(f"mkdir -p {TEMP_DIR}", check=True)
+    ytdlp_cmd = " ".join(build_ytdlp_command(url, temp_dir))
+    ssh_run(f"mkdir -p {temp_dir}", check=True)
     ssh_run(ytdlp_cmd, check=True)
 
     # Read metadata from info.json
     result = ssh_run(
-        f"cat {TEMP_DIR}/*.info.json", check=True
+        f"cat {temp_dir}/*.info.json", check=True
     )
     defaults = parse_ytdlp_metadata(result.stdout)
 
     # Find the downloaded audio file
     audio_result = ssh_run(
-        f"find {TEMP_DIR} -type f \\( -name '*.mp3' -o -name '*.opus' "
+        f"find {temp_dir} -type f \\( -name '*.mp3' -o -name '*.opus' "
         f"-o -name '*.m4a' -o -name '*.flac' -o -name '*.ogg' \\) | head -1",
         check=True,
     )
@@ -116,7 +122,7 @@ def handle_youtube(url: str) -> None:
 
     # Find thumbnail if present
     thumb_result = ssh_run(
-        f"find {TEMP_DIR} -type f \\( -name '*.jpg' -o -name '*.png' "
+        f"find {temp_dir} -type f \\( -name '*.jpg' -o -name '*.png' "
         f"-o -name '*.webp' \\) | head -1"
     )
     thumb_file = thumb_result.stdout.strip()
@@ -143,23 +149,27 @@ def handle_youtube(url: str) -> None:
     if existing:
         action = prompt_duplicate_action(existing)
         if action == "skip":
-            ssh_run(f"rm -rf {TEMP_DIR}")
+            ssh_run(f"rm -rf {temp_dir}")
             print("Skipped.")
             return
-        # "overwrite" and "rename" both proceed; rename handled below
+        if action == "rename":
+            meta = prompt_metadata(meta)
+            dest = build_destination_path(meta, extension, video_id=video_id)
+            dest_dir = str(PurePosixPath(dest).parent)
+            artist_dir = f"{MUSIC_ROOT}/{sanitize_filename(meta.artist)}"
 
     # Move file to final destination
-    ssh_run(f"mkdir -p '{dest_dir}'", check=True)
-    ssh_run(f"mv '{audio_file}' '{dest}'", check=True)
+    ssh_run(f"mkdir -p {quote_path(dest_dir)}", check=True)
+    ssh_run(f"mv {quote_path(audio_file)} {quote_path(dest)}", check=True)
 
     # Embed thumbnail if available
     if thumb_file:
         thumb_ext = PurePosixPath(thumb_file).suffix
         thumb_dest = str(PurePosixPath(dest_dir) / f"cover{thumb_ext}")
-        ssh_run(f"mv '{thumb_file}' '{thumb_dest}'")
+        ssh_run(f"mv {quote_path(thumb_file)} {quote_path(thumb_dest)}")
 
     # Clean up temp directory
-    ssh_run(f"rm -rf {TEMP_DIR}")
+    ssh_run(f"rm -rf {temp_dir}")
 
     # Log the import
     record_import(ImportRecord(

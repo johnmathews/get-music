@@ -9,7 +9,7 @@ from pathlib import Path
 
 import mutagen
 
-from gm.ssh import ssh_run
+from gm.ssh import ssh_run, quote_path
 
 
 MUSIC_ROOT = "/mnt/nfs/music"
@@ -26,17 +26,16 @@ class AudioMetadata:
     track_number: str = ""
 
 
+_UNSAFE_CHARS = re.compile(r"""[/\\:\x00 '"` \$\?\*<>\|;&\(\)\n\t\r]""")
+
+
 def sanitize_filename(name: str) -> str:
     """Sanitize a string for use as a filename or directory name.
 
-    Replaces spaces with hyphens and removes unsafe characters.
+    Replaces spaces and shell/filesystem-unsafe characters with hyphens.
     """
     name = name.strip()
-    name = name.replace("/", "-")
-    name = name.replace("\\", "-")
-    name = name.replace("\x00", "-")
-    name = name.replace(":", "-")
-    name = name.replace(" ", "-")
+    name = _UNSAFE_CHARS.sub("-", name)
     # Collapse multiple consecutive hyphens
     while "--" in name:
         name = name.replace("--", "-")
@@ -95,6 +94,41 @@ def _first_tag(audio: mutagen.FileType, key: str) -> str:
     return ""
 
 
+_TAG_MAP = {
+    "artist": "artist",
+    "album": "album",
+    "title": "title",
+    "genre": "genre",
+    "date": "date",
+    "description": "description",
+    "track_number": "tracknumber",
+}
+
+
+def write_metadata(path: Path, meta: AudioMetadata) -> None:
+    """Write metadata tags back into an audio file. Best-effort."""
+    try:
+        audio = mutagen.File(path, easy=True)
+    except Exception:
+        return
+    if audio is None:
+        return
+
+    for attr, tag_key in _TAG_MAP.items():
+        value = getattr(meta, attr, "")
+        if not value:
+            continue
+        try:
+            audio[tag_key] = value
+        except (KeyError, mutagen.MutagenError):
+            pass
+
+    try:
+        audio.save()
+    except Exception:
+        pass
+
+
 def list_existing_artists() -> list[str]:
     """List artist directories on the LXC."""
     result = ssh_run(f"ls -1 '{MUSIC_ROOT}' 2>/dev/null")
@@ -106,7 +140,7 @@ def list_existing_artists() -> list[str]:
 def list_existing_albums(artist: str) -> list[str]:
     """List album directories for an artist on the LXC."""
     safe_artist = sanitize_filename(artist)
-    result = ssh_run(f"ls -1 '{MUSIC_ROOT}/{safe_artist}' 2>/dev/null")
+    result = ssh_run(f"ls -1 {quote_path(f'{MUSIC_ROOT}/{safe_artist}')} 2>/dev/null")
     if result.returncode != 0 or not result.stdout.strip():
         return []
     return [line for line in result.stdout.strip().split("\n") if line]
@@ -228,7 +262,7 @@ def prompt_title_only(
 
 def check_destination_exists(dest: str) -> bool:
     """Check whether a file already exists at dest on the LXC."""
-    result = ssh_run(f"test -e '{dest}'")
+    result = ssh_run(f"test -e {quote_path(dest)}")
     return result.returncode == 0
 
 
@@ -239,7 +273,7 @@ def check_video_id_exists(artist_dir: str, video_id: str) -> str:
     """
     if not video_id:
         return ""
-    result = ssh_run(f"find '{artist_dir}' -name '*\\[{video_id}\\]*' -type f 2>/dev/null | head -1")
+    result = ssh_run(f"find {quote_path(artist_dir)} -name '*\\[{video_id}\\]*' -type f 2>/dev/null | head -1")
     return result.stdout.strip()
 
 

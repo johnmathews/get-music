@@ -18,6 +18,7 @@ from gm.metadata import (
     prompt_duplicate_action,
     prompt_title_only,
     read_metadata,
+    write_metadata,
     prompt_metadata,
     sanitize_filename,
     suggest_match,
@@ -54,6 +55,42 @@ class TestSanitizeFilename:
 
     def test_replaces_dots_only_name(self) -> None:
         assert sanitize_filename("...") == "_"
+
+    def test_removes_single_quotes(self) -> None:
+        assert sanitize_filename("It's a Song") == "It-s-a-Song"
+
+    def test_removes_double_quotes(self) -> None:
+        assert sanitize_filename('Say "Hello"') == "Say-Hello"
+
+    def test_removes_backticks(self) -> None:
+        assert sanitize_filename("Song `Live`") == "Song-Live"
+
+    def test_removes_dollar_sign(self) -> None:
+        assert sanitize_filename("Ca$h Money") == "Ca-h-Money"
+
+    def test_removes_question_mark(self) -> None:
+        assert sanitize_filename("Why?") == "Why"
+
+    def test_removes_asterisk(self) -> None:
+        assert sanitize_filename("Best*Of") == "Best-Of"
+
+    def test_removes_angle_brackets(self) -> None:
+        assert sanitize_filename("<Title>") == "Title"
+
+    def test_removes_pipe(self) -> None:
+        assert sanitize_filename("A|B") == "A-B"
+
+    def test_removes_semicolons(self) -> None:
+        assert sanitize_filename("A;B") == "A-B"
+
+    def test_removes_ampersand(self) -> None:
+        assert sanitize_filename("Tom & Jerry") == "Tom-Jerry"
+
+    def test_removes_parentheses(self) -> None:
+        assert sanitize_filename("Song (Live)") == "Song-Live"
+
+    def test_removes_newlines_and_tabs(self) -> None:
+        assert sanitize_filename("Line1\nLine2\tLine3") == "Line1-Line2-Line3"
 
 
 class TestBuildDestinationPath:
@@ -450,3 +487,71 @@ class TestPromptTitleOnly:
         batch = AudioMetadata(artist="Artist", album="Album")
         result = prompt_title_only(defaults, batch, track_number=1)
         assert result.description == "A live recording"
+
+
+class TestWriteMetadata:
+    """Test metadata write-back to audio files."""
+
+    @patch("gm.metadata.mutagen.File")
+    def test_writes_all_tags(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        mock_audio = MagicMock()
+        mock_file.return_value = mock_audio
+
+        meta = AudioMetadata(
+            artist="Artist", album="Album", title="Song",
+            genre="Rock", date="2024", description="Desc", track_number="3",
+        )
+        write_metadata(tmp_path / "song.mp3", meta)
+
+        mock_audio.__setitem__.assert_any_call("artist", "Artist")
+        mock_audio.__setitem__.assert_any_call("album", "Album")
+        mock_audio.__setitem__.assert_any_call("title", "Song")
+        mock_audio.__setitem__.assert_any_call("genre", "Rock")
+        mock_audio.__setitem__.assert_any_call("date", "2024")
+        mock_audio.__setitem__.assert_any_call("tracknumber", "3")
+        mock_audio.save.assert_called_once()
+
+    @patch("gm.metadata.mutagen.File")
+    def test_skips_empty_tags(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        mock_audio = MagicMock()
+        mock_file.return_value = mock_audio
+
+        meta = AudioMetadata(artist="Artist", album="", title="Song")
+        write_metadata(tmp_path / "song.mp3", meta)
+
+        # album is empty, should not be set
+        calls = [c[0][0] for c in mock_audio.__setitem__.call_args_list]
+        assert "album" not in calls
+        assert "artist" in calls
+
+    @patch("gm.metadata.mutagen.File", return_value=None)
+    def test_handles_none_file(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        meta = AudioMetadata(artist="Artist", title="Song")
+        # Should not raise
+        write_metadata(tmp_path / "song.mp3", meta)
+
+    @patch("gm.metadata.mutagen.File", side_effect=Exception("bad file"))
+    def test_handles_exception(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        meta = AudioMetadata(artist="Artist", title="Song")
+        # Should not raise
+        write_metadata(tmp_path / "song.mp3", meta)
+
+    @patch("gm.metadata.mutagen.File")
+    def test_handles_unsupported_tag(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = MagicMock(side_effect=KeyError("unsupported"))
+        mock_file.return_value = mock_audio
+
+        meta = AudioMetadata(artist="Artist", title="Song")
+        # Should not raise even if tags fail
+        write_metadata(tmp_path / "song.mp3", meta)
+
+    @patch("gm.metadata.mutagen.File")
+    def test_handles_save_failure(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        mock_audio = MagicMock()
+        mock_audio.save.side_effect = Exception("save failed")
+        mock_file.return_value = mock_audio
+
+        meta = AudioMetadata(artist="Artist", title="Song")
+        # Should not raise even if save fails
+        write_metadata(tmp_path / "song.mp3", meta)

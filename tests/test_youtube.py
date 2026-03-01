@@ -14,9 +14,11 @@ from gm.youtube import (
     build_ytdlp_command,
     parse_ytdlp_metadata,
     extract_video_id,
-    TEMP_DIR,
+    _make_temp_dir,
 )
 from gm.ssh import SSH_HOST
+
+TEMP_DIR = "/tmp/gm-download-test123"
 
 
 class TestBuildYtdlpCommand:
@@ -24,7 +26,7 @@ class TestBuildYtdlpCommand:
 
     def test_builds_audio_download_command(self) -> None:
         url = "https://www.youtube.com/watch?v=abc123"
-        cmd = build_ytdlp_command(url)
+        cmd = build_ytdlp_command(url, TEMP_DIR)
         assert "yt-dlp" in cmd
         assert url in cmd
         assert "--extract-audio" in cmd
@@ -35,14 +37,19 @@ class TestBuildYtdlpCommand:
 
     def test_does_not_force_audio_format(self) -> None:
         url = "https://www.youtube.com/watch?v=abc123"
-        cmd = build_ytdlp_command(url)
+        cmd = build_ytdlp_command(url, TEMP_DIR)
         assert "--audio-format" not in cmd
 
     def test_output_template_uses_temp_dir(self) -> None:
         url = "https://www.youtube.com/watch?v=abc123"
-        cmd = build_ytdlp_command(url)
+        cmd = build_ytdlp_command(url, TEMP_DIR)
         joined = " ".join(cmd)
         assert TEMP_DIR in joined
+
+    def test_includes_no_playlist_flag(self) -> None:
+        url = "https://www.youtube.com/watch?v=abc123&list=PLxyz"
+        cmd = build_ytdlp_command(url, TEMP_DIR)
+        assert "--no-playlist" in cmd
 
 
 class TestExtractVideoId:
@@ -139,6 +146,18 @@ class TestParseYtdlpMetadata:
         assert meta.title == ""
 
 
+class TestMakeTempDir:
+    """Test unique temp directory generation."""
+
+    def test_make_temp_dir_unique(self) -> None:
+        dir1 = _make_temp_dir()
+        dir2 = _make_temp_dir()
+        assert dir1 != dir2
+        assert dir1.startswith("/tmp/gm-download-")
+        assert dir2.startswith("/tmp/gm-download-")
+
+
+@patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
 class TestHandleYoutube:
     """Test the full YouTube download flow."""
 
@@ -156,6 +175,7 @@ class TestHandleYoutube:
         mock_check_vid: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -211,6 +231,7 @@ class TestHandleYoutube:
         mock_check_vid: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
@@ -251,6 +272,7 @@ class TestHandleYoutube:
         mock_check_vid: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -281,6 +303,7 @@ class TestHandleYoutube:
         mock_check_vid: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -322,6 +345,7 @@ class TestHandleYoutube:
         mock_check_vid: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -343,3 +367,52 @@ class TestHandleYoutube:
 
         mock_dup_action.assert_called_once()
         mock_record.assert_called_once()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=True)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_duplicate_action", return_value="rename")
+    @patch("gm.youtube.prompt_metadata")
+    def test_rename_reprompts_metadata(
+        self,
+        mock_prompt: MagicMock,
+        mock_dup_action: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+    ) -> None:
+        first_meta = AudioMetadata(
+            artist="Artist", album="Singles", title="Song"
+        )
+        renamed_meta = AudioMetadata(
+            artist="Artist", album="Other-Album", title="New-Song"
+        )
+        mock_prompt.side_effect = [first_meta, renamed_meta]
+
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        # prompt_metadata called twice: initial + rename re-prompt
+        assert mock_prompt.call_count == 2
+        # Final destination should use renamed metadata
+        record = mock_record.call_args[0][0]
+        assert record.title == "New-Song"
+        assert record.album == "Other-Album"
+        assert "Other-Album" in record.destination

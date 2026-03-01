@@ -14,9 +14,10 @@ from gm.metadata import (
     prompt_metadata,
     prompt_title_only,
     read_metadata,
+    write_metadata,
 )
 from gm.history import ImportRecord, record_import, compute_file_hash, find_by_hash
-from gm.ssh import ssh_run
+from gm.ssh import ssh_run, quote_path
 
 SCP_HOST = "music"
 
@@ -63,7 +64,7 @@ def scp_transfer(local_path: Path, remote_path: str) -> None:
 
 def ssh_mkdir(remote_dir: str) -> None:
     """Create a directory on the LXC via SSH."""
-    ssh_run(f"mkdir -p '{remote_dir}'", check=True)
+    ssh_run(f"mkdir -p {quote_path(remote_dir)}", check=True)
 
 
 def extract_audio_from_video(video_path: Path) -> Path:
@@ -119,8 +120,12 @@ def handle_file(
         if action == "skip":
             print("Skipped.")
             return
-        # "overwrite" and "rename" both proceed
+        if action == "rename":
+            meta = prompt_metadata(meta)
+            dest = build_destination_path(meta, extension)
+            dest_dir = str(PurePosixPath(dest).parent)
 
+    write_metadata(source, meta)
     ssh_mkdir(dest_dir)
     scp_transfer(source, dest)
 
@@ -154,9 +159,19 @@ def handle_directory(path: Path) -> None:
     print(f"Found {total} file(s)")
 
     batch = prompt_batch_metadata()
+    failures: list[tuple[Path, str]] = []
 
     for i, file in enumerate(all_files, 1):
         print(f"\n[{i}/{total}] {file.name}")
-        handle_file(file, batch_meta=batch, track_number=i)
+        try:
+            handle_file(file, batch_meta=batch, track_number=i)
+        except Exception as exc:
+            print(f"  Error: {exc}")
+            failures.append((file, str(exc)))
 
-    print(f"\nDone! Processed {total} file(s).")
+    succeeded = total - len(failures)
+    if failures:
+        print(f"\n{len(failures)} file(s) failed:")
+        for failed_path, reason in failures:
+            print(f"  {failed_path.name}: {reason}")
+    print(f"\nDone! {succeeded}/{total} file(s) processed.")
