@@ -46,4 +46,7 @@ uv run pytest
 uv run coverage run -m pytest && uv run coverage html
 ```
 
-See [docs/usage.md](docs/usage.md) for detailed usage documentation.
+## Documentation
+
+- [Usage guide](docs/usage.md) — detailed usage documentation
+- [MusicBrainz Picard](docs/picard.md) — tagging files with correct metadata before import
