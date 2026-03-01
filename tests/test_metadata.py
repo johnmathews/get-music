@@ -229,6 +229,29 @@ class TestReadMetadata:
         assert meta.artist == ""
         assert meta.title == "song"  # falls back to filename stem
 
+    def test_falls_back_to_file_creation_date(self, tmp_path: Path) -> None:
+        import re
+        f = tmp_path / "no-date.mp3"
+        f.write_bytes(b"\x00" * 100)
+        meta = read_metadata(f)
+        # No date tag in file → should use file creation date (YYYY-MM-DD)
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", meta.date)
+
+    @patch("gm.metadata.mutagen.File")
+    def test_preserves_tag_date_over_file_date(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        f = tmp_path / "song.mp3"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "date": ["1971"],
+            "title": ["Song"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        assert meta.date == "1971"
+
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])

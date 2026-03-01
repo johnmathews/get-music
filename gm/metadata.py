@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import difflib
+import os
 import re
 import shlex
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import mutagen
@@ -90,7 +92,21 @@ def read_metadata(path: Path) -> AudioMetadata:
     if not meta.title:
         meta.title = path.stem
 
+    if not meta.date:
+        meta.date = _file_creation_date(path)
+
     return meta
+
+
+def _file_creation_date(path: Path) -> str:
+    """Return the file's creation date as YYYY-MM-DD, or empty string on failure."""
+    try:
+        stat = path.stat()
+        # Use birth time (st_birthtime) on macOS, fall back to mtime
+        ts = getattr(stat, "st_birthtime", None) or stat.st_mtime
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    except OSError:
+        return ""
 
 
 def _first_tag(audio: mutagen.FileType, key: str) -> str:
