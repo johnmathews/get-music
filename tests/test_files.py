@@ -408,7 +408,7 @@ class TestHandleDirectory:
 
     @patch("gm.files.handle_file")
     @patch("gm.files.prompt_batch_metadata")
-    @patch("builtins.input", return_value="n")
+    @patch("builtins.input", side_effect=["n", "y"])
     def test_non_recursive(
         self,
         mock_input: MagicMock,
@@ -435,7 +435,7 @@ class TestHandleDirectory:
 
     @patch("gm.files.handle_file")
     @patch("gm.files.prompt_batch_metadata")
-    @patch("builtins.input", return_value="y")
+    @patch("builtins.input", side_effect=["y", "y"])
     def test_recursive(
         self,
         mock_input: MagicMock,
@@ -472,7 +472,7 @@ class TestHandleDirectory:
 
     @patch("gm.files.handle_file")
     @patch("gm.files.prompt_batch_metadata")
-    @patch("builtins.input", return_value="n")
+    @patch("builtins.input", side_effect=["n", "y"])
     def test_continues_after_file_error(
         self,
         mock_input: MagicMock,
@@ -499,7 +499,7 @@ class TestHandleDirectory:
 
     @patch("gm.files.handle_file")
     @patch("gm.files.prompt_batch_metadata")
-    @patch("builtins.input", return_value="n")
+    @patch("builtins.input", side_effect=["n", "y"])
     def test_reports_all_failures(
         self,
         mock_input: MagicMock,
@@ -521,3 +521,24 @@ class TestHandleDirectory:
         captured = capsys.readouterr()
         assert "2 file(s) failed" in captured.out
         assert "0/2 file(s) processed" in captured.out
+
+    @patch("gm.files.handle_file")
+    @patch("gm.files.prompt_batch_metadata")
+    @patch("builtins.input", side_effect=["n", "n"])
+    def test_per_file_metadata_mode(
+        self,
+        mock_input: MagicMock,
+        mock_batch: MagicMock,
+        mock_handle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "a.mp3").write_bytes(b"\x00")
+        (tmp_path / "b.mp3").write_bytes(b"\x00")
+
+        handle_directory(tmp_path)
+
+        mock_batch.assert_not_called()
+        assert mock_handle.call_count == 2
+        for c in mock_handle.call_args_list:
+            assert c.kwargs["batch_meta"] is None
+            assert c.kwargs["track_number"] == 0

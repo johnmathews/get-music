@@ -51,11 +51,12 @@ using `ffmpeg`, then transferred.
 gm ~/Downloads/album/
 ```
 
-You'll be prompted whether to search recursively, then prompted once for shared metadata:
+You'll be prompted whether to search recursively and whether files share the same album:
 
 ```
 Search recursively? [y/N]: n
 Found 12 file(s)
+Same album? [Y/n]: y
 
 Shared metadata for all files (press Enter to leave empty):
   Artist: Led Zeppelin
@@ -67,8 +68,21 @@ Shared metadata for all files (press Enter to leave empty):
   Title [Black Dog]:
 ```
 
-Each file gets automatic track numbering and only prompts for the title. Shared fields (artist, album, genre, date) are
-set once for the whole batch.
+When files share the same album (default), each file gets automatic track numbering and only prompts for the title.
+Shared fields (artist, album, genre, date) are set once for the whole batch.
+
+If files are from different artists or albums, answer "n" to get full metadata prompting for each file individually:
+
+```
+Same album? [Y/n]: n
+
+[1/5] song-a.mp3
+  Artist []: Pink Floyd
+  Album []: The Wall
+  Title [song-a]: Another Brick in the Wall
+  Genre []: Rock
+  Date []: 1979
+```
 
 If a file fails during batch import (e.g., transfer error), `gm` logs the error and continues with the remaining files. A
 summary of successes and failures is printed at the end.

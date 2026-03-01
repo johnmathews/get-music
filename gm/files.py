@@ -161,13 +161,17 @@ def handle_directory(path: Path) -> None:
     total = len(all_files)
     print(f"Found {total} file(s)")
 
-    batch = prompt_batch_metadata()
+    same_album = input("Same album? [Y/n]: ").strip().lower() != "n"
+    batch: AudioMetadata | None = None
+    if same_album:
+        batch = prompt_batch_metadata()
     failures: list[tuple[Path, str]] = []
 
     for i, file in enumerate(all_files, 1):
         print(f"\n[{i}/{total}] {file.name}")
+        track = i if same_album else 0
         try:
-            handle_file(file, batch_meta=batch, track_number=i)
+            handle_file(file, batch_meta=batch, track_number=track)
         except Exception as exc:
             print(f"  Error: {exc}")
             failures.append((file, str(exc)))
