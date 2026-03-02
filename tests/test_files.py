@@ -9,11 +9,17 @@ import subprocess
 import pytest
 
 from gm.files import (
+    CODEC_EXTENSION_MAP,
+    _MIN_THUMBNAIL_SIZE,
+    embed_cover_art,
+    fetch_youtube_thumbnail,
     find_audio_files,
     find_video_files,
     is_video_file,
     is_audio_file,
     build_scp_command,
+    detect_audio_codec,
+    extract_thumbnail,
     extract_audio_from_video,
     handle_file,
     handle_directory,
@@ -42,6 +48,10 @@ class TestFileDetection:
     def test_non_media_file(self) -> None:
         assert not is_audio_file(Path("readme.txt"))
         assert not is_video_file(Path("readme.txt"))
+
+    def test_skips_macos_resource_forks(self) -> None:
+        assert not is_audio_file(Path("._song.mp3"))
+        assert not is_video_file(Path("._video.mp4"))
 
 
 class TestFindFiles:
@@ -127,27 +137,290 @@ class TestSshMkdir:
         assert "It" in call_cmd
 
 
+class TestDetectAudioCodec:
+    """Test audio codec detection via ffprobe."""
+
+    @patch("gm.files.subprocess.run")
+    def test_detects_known_codecs(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        for codec, ext in CODEC_EXTENSION_MAP.items():
+            mock_run.return_value = subprocess.CompletedProcess([], 0, f"{codec}\n", "")
+            result = detect_audio_codec(video)
+            assert result == codec
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_unknown_codec(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "ac3\n", "")
+        result = detect_audio_codec(video)
+        assert result == "ac3"
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_empty_on_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        mock_run.return_value = subprocess.CompletedProcess([], 1, "", "error")
+        result = detect_audio_codec(video)
+        assert result == ""
+
+
+class TestExtractThumbnail:
+    """Test thumbnail extraction from video files."""
+
+    @patch("gm.files.subprocess.run")
+    def test_extracts_thumbnail(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        thumb = tmp_path / "video.jpg"
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        # Simulate ffmpeg creating the thumbnail
+        thumb.write_bytes(b"\xff\xd8")
+
+        result = extract_thumbnail(video)
+        assert result == thumb
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "-map" in cmd
+        assert "0:v:t" in cmd
+        assert "-q:v" in cmd
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_none_on_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        mock_run.return_value = subprocess.CompletedProcess([], 1, "", "no thumbnail")
+
+        result = extract_thumbnail(video)
+        assert result is None
+        mock_run.assert_called_once()
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_none_when_file_missing(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        # ffmpeg returns 0 but doesn't create the file
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        result = extract_thumbnail(video)
+        assert result is None
+
+
+class TestFetchYoutubeThumbnail:
+    """Test YouTube thumbnail downloading."""
+
+    @patch("gm.files.urllib.request.urlretrieve")
+    def test_downloads_maxresdefault(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+        thumb = tmp_path / "cover.jpg"
+
+        def fake_retrieve(url: str, path: str) -> None:
+            Path(path).write_bytes(b"\xff" * 10000)
+
+        mock_retrieve.side_effect = fake_retrieve
+
+        result = fetch_youtube_thumbnail("dQw4w9WgXcQ", thumb)
+        assert result == thumb
+        mock_retrieve.assert_called_once()
+        assert "maxresdefault" in mock_retrieve.call_args[0][0]
+
+    @patch("gm.files.urllib.request.urlretrieve")
+    def test_falls_back_to_hqdefault(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+        thumb = tmp_path / "cover.jpg"
+        import urllib.error
+
+        def fake_retrieve(url: str, path: str) -> None:
+            if "maxresdefault" in url:
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+            Path(path).write_bytes(b"\xff" * 10000)
+
+        mock_retrieve.side_effect = fake_retrieve
+
+        result = fetch_youtube_thumbnail("dQw4w9WgXcQ", thumb)
+        assert result == thumb
+        assert mock_retrieve.call_count == 2
+        assert "hqdefault" in mock_retrieve.call_args[0][0]
+
+    @patch("gm.files.urllib.request.urlretrieve")
+    def test_skips_placeholder_image(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+        thumb = tmp_path / "cover.jpg"
+
+        def fake_retrieve(url: str, path: str) -> None:
+            if "maxresdefault" in url:
+                # YouTube returns a tiny placeholder for missing maxres
+                Path(path).write_bytes(b"\xff" * 1097)
+            else:
+                Path(path).write_bytes(b"\xff" * 10000)
+
+        mock_retrieve.side_effect = fake_retrieve
+
+        result = fetch_youtube_thumbnail("dQw4w9WgXcQ", thumb)
+        assert result == thumb
+        # maxresdefault was too small, fell through to hqdefault
+        assert mock_retrieve.call_count == 2
+
+    @patch("gm.files.urllib.request.urlretrieve")
+    def test_returns_none_on_network_failure(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+        import urllib.error
+        thumb = tmp_path / "cover.jpg"
+        mock_retrieve.side_effect = urllib.error.URLError("network error")
+
+        result = fetch_youtube_thumbnail("dQw4w9WgXcQ", thumb)
+        assert result is None
+        assert not thumb.exists()
+
+    def test_returns_none_for_empty_video_id(self, tmp_path: Path) -> None:
+        result = fetch_youtube_thumbnail("", tmp_path / "cover.jpg")
+        assert result is None
+
+    @patch("gm.files.urllib.request.urlretrieve")
+    def test_cleans_up_placeholder_on_total_failure(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+        thumb = tmp_path / "cover.jpg"
+
+        def fake_retrieve(url: str, path: str) -> None:
+            # Both URLs return tiny placeholders
+            Path(path).write_bytes(b"\xff" * 500)
+
+        mock_retrieve.side_effect = fake_retrieve
+
+        result = fetch_youtube_thumbnail("dQw4w9WgXcQ", thumb)
+        assert result is None
+        assert not thumb.exists()
+
+
+class TestEmbedCoverArt:
+    """Test cover art embedding into audio files."""
+
+    @patch("gm.files._embed_mp3")
+    def test_embeds_mp3(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.mp3"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        embed_cover_art(audio, image)
+        mock_embed.assert_called_once_with(audio, b"\xff\xd8", "image/jpeg")
+
+    @patch("gm.files._embed_mp4")
+    def test_embeds_m4a(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.m4a"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        embed_cover_art(audio, image)
+        mock_embed.assert_called_once_with(audio, b"\xff\xd8", "image/jpeg")
+
+    @patch("gm.files._embed_vorbis")
+    def test_embeds_opus(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.opus"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.png"
+        image.write_bytes(b"\x89PNG")
+
+        embed_cover_art(audio, image)
+        mock_embed.assert_called_once_with(audio, b"\x89PNG", "image/png")
+
+    @patch("gm.files._embed_vorbis")
+    def test_embeds_ogg(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.ogg"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        embed_cover_art(audio, image)
+        mock_embed.assert_called_once_with(audio, b"\xff\xd8", "image/jpeg")
+
+    @patch("gm.files._embed_flac")
+    def test_embeds_flac(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.flac"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        embed_cover_art(audio, image)
+        mock_embed.assert_called_once_with(audio, b"\xff\xd8", "image/jpeg")
+
+    def test_handles_missing_image(self, tmp_path: Path) -> None:
+        audio = tmp_path / "song.mp3"
+        audio.write_bytes(b"\x00")
+        missing = tmp_path / "no-such-file.jpg"
+
+        # Should not raise
+        embed_cover_art(audio, missing)
+
+    @patch("gm.files._embed_mp3", side_effect=Exception("mutagen broke"))
+    def test_handles_mutagen_failure(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+        audio = tmp_path / "song.mp3"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        # Should not raise
+        embed_cover_art(audio, image)
+
+    def test_ignores_unsupported_format(self, tmp_path: Path) -> None:
+        audio = tmp_path / "song.wav"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        # Should not raise, just silently do nothing
+        embed_cover_art(audio, image)
+
+
 class TestExtractAudio:
     """Test audio extraction from video files."""
 
+    @patch("gm.files.extract_thumbnail")
+    @patch("gm.files.detect_audio_codec", return_value="opus")
     @patch("gm.files.subprocess.run")
-    def test_extracts_audio(self, mock_run: MagicMock, tmp_path: Path) -> None:
+    def test_extracts_audio_opus(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
+        thumb = tmp_path / "video.jpg"
+        mock_thumb.return_value = thumb
         mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
-        result = extract_audio_from_video(video)
-        assert result.suffix == ".mp3"
+        audio, thumbnail = extract_audio_from_video(video)
+        assert audio.suffix == ".opus"
+        assert thumbnail == thumb
+        mock_thumb.assert_called_once_with(video)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert "ffmpeg" in cmd
+        assert "-c:a" in cmd
+        assert "copy" in cmd
 
+    @patch("gm.files.extract_thumbnail")
+    @patch("gm.files.detect_audio_codec", return_value="aac")
     @patch("gm.files.subprocess.run")
-    def test_raises_on_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:
+    def test_extracts_audio_aac(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        mock_thumb.return_value = None
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        audio, thumbnail = extract_audio_from_video(video)
+        assert audio.suffix == ".m4a"
+        assert thumbnail is None
+
+    @patch("gm.files.extract_thumbnail")
+    @patch("gm.files.detect_audio_codec", return_value="unknown_codec")
+    @patch("gm.files.subprocess.run")
+    def test_falls_back_to_opus_for_unknown_codec(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        mock_thumb.return_value = None
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        audio, thumbnail = extract_audio_from_video(video)
+        assert audio.suffix == ".opus"
+
+    @patch("gm.files.extract_thumbnail", return_value=None)
+    @patch("gm.files.detect_audio_codec", return_value="opus")
+    @patch("gm.files.subprocess.run")
+    def test_raises_on_failure(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         mock_run.return_value = subprocess.CompletedProcess([], 1, "", "codec error")
-        with pytest.raises(RuntimeError, match="ffmpeg failed: codec error"):
+        with pytest.raises(RuntimeError, match="ffmpeg audio extraction failed"):
             extract_audio_from_video(video)
 
 
@@ -177,6 +450,7 @@ class TestHandleFile:
         mock_write_meta: MagicMock,
         mock_find_genre: MagicMock,
         tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -197,6 +471,12 @@ class TestHandleFile:
         assert record.file_hash == "fakehash"
         assert record.artist == "Artist"
 
+        captured = capsys.readouterr()
+        assert "Checking for duplicates..." in captured.out
+        assert "Writing metadata..." in captured.out
+        assert "Transferring..." in captured.out
+
+    @patch("gm.files.embed_cover_art")
     @patch("gm.files.record_import")
     @patch("gm.files.check_destination_exists", return_value=False)
     @patch("gm.files.find_by_hash", return_value=[])
@@ -217,6 +497,7 @@ class TestHandleFile:
         mock_find_hash: MagicMock,
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
+        mock_embed_art: MagicMock,
         mock_write_meta: MagicMock,
         mock_find_genre: MagicMock,
         tmp_path: Path,
@@ -225,18 +506,130 @@ class TestHandleFile:
 
         f = tmp_path / "video.mp4"
         f.write_bytes(b"\x00")
-        extracted = tmp_path / "video.mp3"
+        extracted = tmp_path / "video.opus"
         extracted.write_bytes(b"\x00")
+        thumb = tmp_path / "video.jpg"
+        thumb.write_bytes(b"\xff\xd8")
 
-        mock_extract.return_value = extracted
+        mock_extract.return_value = (extracted, thumb)
         mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
         mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
 
         handle_file(f)
 
         mock_extract.assert_called_once_with(f)
+        mock_embed_art.assert_called_once_with(extracted, thumb)
+        assert mock_scp.call_count == 2
+        # First call: audio file
+        audio_call = mock_scp.call_args_list[0]
+        assert audio_call[0][0] == extracted
+        # Second call: cover.jpg
+        cover_call = mock_scp.call_args_list[1]
+        assert cover_call[0][0] == thumb
+        assert cover_call[0][1].endswith("/cover.jpg")
+        mock_record.assert_called_once()
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.extract_audio_from_video")
+    def test_handles_video_file_no_thumbnail(
+        self,
+        mock_extract: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "video.mp4"
+        f.write_bytes(b"\x00")
+        extracted = tmp_path / "video.opus"
+        extracted.write_bytes(b"\x00")
+
+        mock_extract.return_value = (extracted, None)
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+
+        handle_file(f)
+
+        mock_extract.assert_called_once_with(f)
+        # No video ID in filename, so fetch_youtube_thumbnail not called
+        mock_fetch_yt.assert_not_called()
+        # Only audio scp, no cover scp
         mock_scp.assert_called_once()
         mock_record.assert_called_once()
+
+    @patch("gm.files.embed_cover_art")
+    @patch("gm.files.fetch_youtube_thumbnail")
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.extract_audio_from_video")
+    def test_fetches_youtube_thumbnail_when_no_embedded(
+        self,
+        mock_extract: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_embed_art: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        # Filename has YouTube video ID (artist-title-[id] pattern)
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp4"
+        f.write_bytes(b"\x00")
+        extracted = tmp_path / "Artist-Song-[dQw4w9WgXcQ].opus"
+        extracted.write_bytes(b"\x00")
+        yt_thumb = tmp_path / "Artist-Song-[dQw4w9WgXcQ].jpg"
+        yt_thumb.write_bytes(b"\xff\xd8")
+
+        mock_extract.return_value = (extracted, None)  # No attached picture
+        mock_fetch_yt.return_value = yt_thumb  # YouTube download succeeds
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+
+        handle_file(f)
+
+        # YouTube thumbnail fetched as fallback
+        mock_fetch_yt.assert_called_once_with(
+            "dQw4w9WgXcQ", f.with_suffix(".jpg"),
+        )
+        # Thumbnail embedded and transferred
+        mock_embed_art.assert_called_once_with(extracted, yt_thumb)
+        assert mock_scp.call_count == 2
+        cover_call = mock_scp.call_args_list[1]
+        assert cover_call[0][0] == yt_thumb
+        assert cover_call[0][1].endswith("/cover.jpg")
 
     @patch("gm.files.record_import")
     @patch("gm.files.check_destination_exists", return_value=False)
@@ -403,6 +796,82 @@ class TestHandleFile:
         assert record.album == "Other-Album"
 
 
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    def test_passes_video_id_to_destination(
+        self,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
+        f.write_bytes(b"\x00")
+
+        mock_read.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+
+        handle_file(f)
+
+        # Destination should contain the video ID
+        dest = mock_scp.call_args[0][1]
+        assert "[dQw4w9WgXcQ]" in dest
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    def test_logs_video_id_in_import_record(
+        self,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
+        f.write_bytes(b"\x00")
+
+        mock_read.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+
+        handle_file(f)
+
+        record = mock_record.call_args[0][0]
+        assert record.video_id == "dQw4w9WgXcQ"
+
+
 class TestHandleDirectory:
     """Test directory processing."""
 
@@ -542,3 +1011,26 @@ class TestHandleDirectory:
         for c in mock_handle.call_args_list:
             assert c.kwargs["batch_meta"] is None
             assert c.kwargs["track_number"] == 0
+
+    @patch("gm.files.handle_file")
+    @patch("gm.files.prompt_batch_metadata")
+    @patch("builtins.input", side_effect=["n", "y"])
+    def test_deduplicates_audio_and_video_with_same_stem(
+        self,
+        mock_input: MagicMock,
+        mock_batch: MagicMock,
+        mock_handle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        mock_batch.return_value = AudioMetadata(artist="Artist", album="Album")
+        # Same stem, different extensions — video should win
+        (tmp_path / "song-[abc123DEF].mp3").write_bytes(b"\x00")
+        (tmp_path / "song-[abc123DEF].mp4").write_bytes(b"\x00")
+
+        handle_directory(tmp_path)
+
+        assert mock_handle.call_count == 1
+        processed = mock_handle.call_args[0][0]
+        assert processed.suffix == ".mp4"

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path, PurePosixPath
 
 from gm.metadata import (
     AudioMetadata,
     build_destination_path,
     check_destination_exists,
+    extract_video_id_from_filename,
     prompt_batch_metadata,
     prompt_duplicate_action,
     prompt_metadata,
@@ -24,15 +28,30 @@ SCP_HOST = "music"
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".m4a", ".wav", ".opus", ".aac", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
 
+CODEC_EXTENSION_MAP: dict[str, str] = {
+    "opus": ".opus",
+    "aac": ".m4a",
+    "vorbis": ".ogg",
+    "flac": ".flac",
+    "mp3": ".mp3",
+    "wmav2": ".wma",
+    "pcm_s16le": ".wav",
+}
+
+
+def _is_macos_resource_fork(path: Path) -> bool:
+    """Check if a file is a macOS AppleDouble resource fork (._prefix)."""
+    return path.name.startswith("._")
+
 
 def is_audio_file(path: Path) -> bool:
     """Check if a file is an audio file by extension."""
-    return path.suffix.lower() in AUDIO_EXTENSIONS
+    return not _is_macos_resource_fork(path) and path.suffix.lower() in AUDIO_EXTENSIONS
 
 
 def is_video_file(path: Path) -> bool:
     """Check if a file is a video file by extension."""
-    return path.suffix.lower() in VIDEO_EXTENSIONS
+    return not _is_macos_resource_fork(path) and path.suffix.lower() in VIDEO_EXTENSIONS
 
 
 def find_audio_files(directory: Path, *, recursive: bool = False) -> list[Path]:
@@ -67,18 +86,161 @@ def ssh_mkdir(remote_dir: str) -> None:
     ssh_run(f"mkdir -p {quote_path(remote_dir)}", check=True)
 
 
-def extract_audio_from_video(video_path: Path) -> Path:
-    """Extract audio from a video file using ffmpeg."""
-    output_path = video_path.with_suffix(".mp3")
+def detect_audio_codec(video_path: Path) -> str:
+    """Detect the audio codec of a file using ffprobe."""
     cmd = [
-        "ffmpeg", "-i", str(video_path),
-        "-vn", "-acodec", "libmp3lame", "-q:a", "0",
-        "-y", str(output_path),
+        "ffprobe", "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return result.stdout.strip()
+
+
+def extract_thumbnail(video_path: Path) -> Path | None:
+    """Extract attached picture from a video file.
+
+    Only extracts attached picture streams (0:v:t), NOT video frames.
+    Returns the thumbnail Path, or None if no attached picture exists.
+    """
+    thumb_path = video_path.with_suffix(".jpg")
+    cmd = [
+        "ffmpeg", "-i", str(video_path),
+        "-map", "0:v:t",
+        "-q:v", "1",
+        "-y", str(thumb_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode == 0 and thumb_path.exists():
+        return thumb_path
+    return None
+
+
+# Minimum size in bytes for a valid YouTube thumbnail.
+# YouTube returns a ~1KB placeholder image for missing maxresdefault URLs.
+_MIN_THUMBNAIL_SIZE = 5000
+
+
+def fetch_youtube_thumbnail(video_id: str, output_path: Path) -> Path | None:
+    """Download the YouTube thumbnail for a video ID.
+
+    Tries maxresdefault (1920x1080) first, falls back to hqdefault (480x360).
+    Returns the output path on success, or None on failure.
+    """
+    if not video_id:
+        return None
+    urls = [
+        f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+        f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+    ]
+    for url in urls:
+        try:
+            urllib.request.urlretrieve(url, str(output_path))
+            if output_path.exists() and output_path.stat().st_size > _MIN_THUMBNAIL_SIZE:
+                return output_path
+        except (urllib.error.URLError, OSError):
+            continue
+    # Clean up any leftover placeholder file
+    if output_path.exists():
+        output_path.unlink()
+    return None
+
+
+def embed_cover_art(audio_path: Path, image_path: Path) -> None:
+    """Embed cover art into an audio file. Best-effort, silent on failure."""
+    if not image_path.exists():
+        return
+    try:
+        image_data = image_path.read_bytes()
+    except OSError:
+        return
+    mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+    suffix = audio_path.suffix.lower()
+    try:
+        if suffix == ".mp3":
+            _embed_mp3(audio_path, image_data, mime)
+        elif suffix in (".m4a", ".mp4"):
+            _embed_mp4(audio_path, image_data, mime)
+        elif suffix in (".ogg", ".opus"):
+            _embed_vorbis(audio_path, image_data, mime)
+        elif suffix == ".flac":
+            _embed_flac(audio_path, image_data, mime)
+    except Exception:
+        pass
+
+
+def _embed_mp3(audio_path: Path, image_data: bytes, mime: str) -> None:
+    from mutagen.id3 import ID3, APIC, ID3NoHeaderError
+    try:
+        tags = ID3(str(audio_path))
+    except ID3NoHeaderError:
+        tags = ID3()
+    tags.delall("APIC")
+    tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=image_data))
+    tags.save(str(audio_path))
+
+
+def _embed_mp4(audio_path: Path, image_data: bytes, mime: str) -> None:
+    from mutagen.mp4 import MP4, MP4Cover
+    audio = MP4(str(audio_path))
+    fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+    audio["covr"] = [MP4Cover(image_data, imageformat=fmt)]
+    audio.save()
+
+
+def _embed_vorbis(audio_path: Path, image_data: bytes, mime: str) -> None:
+    import mutagen
+    from mutagen.flac import Picture
+    audio = mutagen.File(str(audio_path))
+    if audio is None:
+        return
+    pic = Picture()
+    pic.type = 3  # Cover (front)
+    pic.mime = mime
+    pic.desc = "Cover"
+    pic.data = image_data
+    encoded = base64.b64encode(pic.write()).decode("ascii")
+    audio["metadata_block_picture"] = [encoded]
+    audio.save()
+
+
+def _embed_flac(audio_path: Path, image_data: bytes, mime: str) -> None:
+    from mutagen.flac import FLAC, Picture
+    audio = FLAC(str(audio_path))
+    pic = Picture()
+    pic.type = 3  # Cover (front)
+    pic.mime = mime
+    pic.desc = "Cover"
+    pic.data = image_data
+    audio.clear_pictures()
+    audio.add_picture(pic)
+    audio.save()
+
+
+def extract_audio_from_video(video_path: Path) -> tuple[Path, Path | None]:
+    """Extract audio from a video file using ffmpeg.
+
+    Preserves the native audio codec (stream copy, no re-encoding).
+    Returns (audio_path, thumbnail_path). Thumbnail may be None if the
+    video has no embedded artwork or extraction fails.
+    """
+    thumbnail = extract_thumbnail(video_path)
+    codec = detect_audio_codec(video_path)
+    ext = CODEC_EXTENSION_MAP.get(codec, ".opus")
+    output_path = video_path.with_suffix(ext)
+    cmd = [
+        "ffmpeg", "-i", str(video_path),
+        "-vn", "-c:a", "copy",
+        "-y", str(output_path),
+    ]
+    result = subprocess.run(
+        cmd, stdout=subprocess.DEVNULL, text=True, check=False,
+    )
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()}")
-    return output_path
+        raise RuntimeError("ffmpeg audio extraction failed")
+    return output_path, thumbnail
 
 
 def handle_file(
@@ -89,13 +251,19 @@ def handle_file(
 ) -> None:
     """Process and transfer a local audio/video file to the music library."""
     source = path
+    thumbnail: Path | None = None
+    video_id = extract_video_id_from_filename(path.stem)
 
     if is_video_file(path):
         print(f"Extracting audio from video: {path.name}")
-        source = extract_audio_from_video(path)
+        source, thumbnail = extract_audio_from_video(path)
     elif not is_audio_file(path):
         print(f"Skipping unsupported file: {path.name}")
         return
+
+    # If no embedded thumbnail, try downloading from YouTube
+    if not thumbnail and video_id:
+        thumbnail = fetch_youtube_thumbnail(video_id, path.with_suffix(".jpg"))
 
     defaults = read_metadata(source)
     if not defaults.genre and defaults.artist:
@@ -105,10 +273,11 @@ def handle_file(
     else:
         meta = prompt_metadata(defaults)
     extension = source.suffix
-    dest = build_destination_path(meta, extension)
+    dest = build_destination_path(meta, extension, video_id=video_id)
     dest_dir = str(PurePosixPath(dest).parent)
 
     # Check for duplicates: local log by hash, then filesystem
+    print("Checking for duplicates...")
     file_hash = compute_file_hash(source)
     existing = ""
     log_hits = find_by_hash(file_hash)
@@ -124,12 +293,20 @@ def handle_file(
             return
         if action == "rename":
             meta = prompt_metadata(meta)
-            dest = build_destination_path(meta, extension)
+            dest = build_destination_path(meta, extension, video_id=video_id)
             dest_dir = str(PurePosixPath(dest).parent)
 
+    print("Writing metadata...")
     write_metadata(source, meta)
+    if thumbnail:
+        embed_cover_art(source, thumbnail)
+    print("Transferring...")
     ssh_mkdir(dest_dir)
     scp_transfer(source, dest)
+
+    if thumbnail:
+        cover_dest = str(PurePosixPath(dest_dir) / "cover.jpg")
+        scp_transfer(thumbnail, cover_dest)
 
     # Log the import
     record_import(ImportRecord(
@@ -140,6 +317,7 @@ def handle_file(
         destination=dest,
         file_hash=file_hash,
         genre=meta.genre,
+        video_id=video_id,
     ))
 
     print(f"Transferred: {path.name} -> {dest}")
@@ -152,7 +330,9 @@ def handle_directory(path: Path) -> None:
 
     audio_files = find_audio_files(path, recursive=recursive)
     video_files = find_video_files(path, recursive=recursive)
-    all_files = sorted(audio_files + video_files)
+    video_stems = {f.stem for f in video_files}
+    unique_audio = [f for f in audio_files if f.stem not in video_stems]
+    all_files = sorted(unique_audio + video_files)
 
     if not all_files:
         print("No audio or video files found.")
