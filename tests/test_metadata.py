@@ -241,6 +241,22 @@ class TestReadMetadata:
         assert meta.track_number == "4"
 
     @patch("gm.metadata.mutagen.File")
+    def test_filters_generic_music_genre(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        f = tmp_path / "song.mp3"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "artist": ["Artist"],
+            "title": ["Song"],
+            "genre": ["Music"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        assert meta.genre == ""
+
+    @patch("gm.metadata.mutagen.File")
     def test_handles_scalar_tag_values(self, mock_file: MagicMock, tmp_path: Path) -> None:
         f = tmp_path / "song.mp3"
         f.write_bytes(b"\x00")

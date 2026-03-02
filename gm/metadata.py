@@ -105,6 +105,9 @@ def read_metadata(path: Path) -> AudioMetadata:
     if not meta.date:
         meta.date = _file_creation_date(path)
 
+    if meta.genre.lower() == "music":
+        meta.genre = ""
+
     meta.date = normalize_date(meta.date)
     return meta
 
