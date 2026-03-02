@@ -252,6 +252,60 @@ class TestReadMetadata:
         meta = read_metadata(f)
         assert meta.date == "1971"
 
+    def test_youtube_filename_fills_artist_album_title(self, tmp_path: Path) -> None:
+        f = tmp_path / "Adam_Barrett-Jigsaw_Falling_Into_Place-[c99GmhBt7GM].mp3"
+        f.write_bytes(b"\x00" * 100)
+        meta = read_metadata(f)
+        assert meta.artist == "Adam Barrett"
+        assert meta.album == "YouTube"
+        assert meta.title == "Jigsaw Falling Into Place"
+
+    @patch("gm.metadata.mutagen.File")
+    def test_tag_metadata_takes_priority_over_youtube_filename(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        f = tmp_path / "SomeChannel-Some_Video-[dQw4w9WgXcQ].opus"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "artist": ["Real Artist"],
+            "album": ["Real Album"],
+            "title": ["Real Title"],
+            "date": ["2020-03-15"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        assert meta.artist == "Real Artist"
+        assert meta.album == "Real Album"
+        assert meta.title == "Real Title"
+        assert meta.date == "2020-03-15"
+
+    def test_non_youtube_filename_not_affected(self, tmp_path: Path) -> None:
+        f = tmp_path / "normal-song.mp3"
+        f.write_bytes(b"\x00" * 100)
+        meta = read_metadata(f)
+        assert meta.artist == ""
+        assert meta.album == ""
+        assert meta.title == "normal-song"
+
+    @patch("gm.metadata.mutagen.File")
+    def test_youtube_filename_fills_gaps_in_tags(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        f = tmp_path / "Adam_Barrett-Cool_Song-[c99GmhBt7GM].mp3"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "date": ["2023-04-15"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        # Artist/album/title filled from filename; date from tags
+        assert meta.artist == "Adam Barrett"
+        assert meta.album == "YouTube"
+        assert meta.title == "Cool Song"
+        assert meta.date == "2023-04-15"
+
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])

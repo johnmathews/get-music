@@ -89,6 +89,16 @@ def read_metadata(path: Path) -> AudioMetadata:
         meta.description = _first_tag(audio, "description")
         meta.track_number = _first_tag(audio, "tracknumber")
 
+    # Fill gaps from YouTube-style filename (Artist_Name-Title-[videoID])
+    yt = _parse_youtube_filename(path.stem)
+    if yt:
+        if not meta.artist:
+            meta.artist = yt["artist"]
+        if not meta.album:
+            meta.album = yt["album"]
+        if not meta.title:
+            meta.title = yt["title"]
+
     if not meta.title:
         meta.title = path.stem
 
@@ -96,6 +106,26 @@ def read_metadata(path: Path) -> AudioMetadata:
         meta.date = _file_creation_date(path)
 
     return meta
+
+
+_YT_FILENAME_RE = re.compile(r"^([^-]+)-(.+)-\[([a-zA-Z0-9_-]{9,12})\]$")
+
+
+def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
+    """Parse artist and title from a YouTube-style filename.
+
+    Detects filenames like 'Artist_Name-Song_Title-[videoID]' and returns
+    extracted metadata, or None if the pattern doesn't match.
+    """
+    match = _YT_FILENAME_RE.match(stem)
+    if not match:
+        return None
+    artist_raw, title_raw, _video_id = match.groups()
+    return {
+        "artist": artist_raw.replace("_", " ").strip(),
+        "title": title_raw.replace("_", " ").strip(),
+        "album": "YouTube",
+    }
 
 
 def _file_creation_date(path: Path) -> str:
