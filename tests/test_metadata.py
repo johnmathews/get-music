@@ -15,6 +15,7 @@ from gm.metadata import (
     humanize_name,
     list_existing_albums,
     list_existing_artists,
+    normalize_date,
     prompt_batch_metadata,
     prompt_duplicate_action,
     prompt_title_only,
@@ -45,6 +46,37 @@ class TestHumanizeName:
 
     def test_empty_string(self) -> None:
         assert humanize_name("") == ""
+
+
+class TestNormalizeDate:
+    """Test date normalization."""
+
+    def test_converts_yyyymmdd(self) -> None:
+        assert normalize_date("20230415") == "2023-04-15"
+
+    def test_preserves_yyyy_mm_dd(self) -> None:
+        assert normalize_date("2023-04-15") == "2023-04-15"
+
+    def test_preserves_bare_year(self) -> None:
+        assert normalize_date("1971") == "1971"
+
+    def test_strips_whitespace(self) -> None:
+        assert normalize_date("  20230415  ") == "2023-04-15"
+
+    def test_empty_string(self) -> None:
+        assert normalize_date("") == ""
+
+    def test_pads_single_digit_month_and_day(self) -> None:
+        assert normalize_date("2023-4-5") == "2023-04-05"
+
+    def test_pads_single_digit_month(self) -> None:
+        assert normalize_date("2023-4-15") == "2023-04-15"
+
+    def test_pads_single_digit_day(self) -> None:
+        assert normalize_date("2023-12-5") == "2023-12-05"
+
+    def test_passes_through_unknown_format(self) -> None:
+        assert normalize_date("April 2023") == "April 2023"
 
 
 class TestSanitizeFilename:
@@ -251,6 +283,21 @@ class TestReadMetadata:
 
         meta = read_metadata(f)
         assert meta.date == "1971"
+
+    @patch("gm.metadata.mutagen.File")
+    def test_normalizes_yyyymmdd_date_tag(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        f = tmp_path / "song.opus"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "date": ["20230415"],
+            "title": ["Song"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        assert meta.date == "2023-04-15"
 
     def test_youtube_filename_fills_artist_album_title(self, tmp_path: Path) -> None:
         f = tmp_path / "Adam_Barrett-Jigsaw_Falling_Into_Place-[c99GmhBt7GM].mp3"

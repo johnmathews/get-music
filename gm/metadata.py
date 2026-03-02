@@ -105,6 +105,7 @@ def read_metadata(path: Path) -> AudioMetadata:
     if not meta.date:
         meta.date = _file_creation_date(path)
 
+    meta.date = normalize_date(meta.date)
     return meta
 
 
@@ -126,6 +127,24 @@ def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
         "title": title_raw.replace("_", " ").strip(),
         "album": "YouTube",
     }
+
+
+_DATE_DASH_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+
+
+def normalize_date(date: str) -> str:
+    """Normalize a date string to YYYY-MM-DD where possible.
+
+    Handles YYYYMMDD (from yt-dlp), YYYY-M-D (unpadded), and passes through
+    bare years (YYYY) unchanged.  Returns the original string for anything else.
+    """
+    date = date.strip()
+    if len(date) == 8 and date.isdigit():
+        return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+    m = _DATE_DASH_RE.match(date)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return date
 
 
 def _file_creation_date(path: Path) -> str:

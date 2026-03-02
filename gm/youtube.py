@@ -13,6 +13,7 @@ from gm.metadata import (
     check_destination_exists,
     check_video_id_exists,
     humanize_name,
+    normalize_date,
     prompt_duplicate_action,
     prompt_metadata,
     sanitize_filename,
@@ -78,12 +79,9 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
 
-    # yt-dlp uses upload_date as YYYYMMDD, convert to YYYY-MM-DD
-    upload_date = data.get("release_date", "") or data.get("upload_date", "") or ""
-    if len(upload_date) == 8 and upload_date.isdigit():
-        date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
-    else:
-        date = upload_date
+    date = normalize_date(
+        data.get("release_date", "") or data.get("upload_date", "") or ""
+    )
 
     return AudioMetadata(
         artist=humanize_name(artist),
