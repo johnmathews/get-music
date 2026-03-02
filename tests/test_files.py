@@ -674,6 +674,9 @@ class TestHandleFile:
         assert cover_call[0][0] == thumb
         assert cover_call[0][1].endswith("/cover.jpg")
         mock_record.assert_called_once()
+        # Locally-created files cleaned up after transfer
+        assert not extracted.exists()
+        assert not thumb.exists()
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")
@@ -720,6 +723,8 @@ class TestHandleFile:
         # Only audio scp, no cover scp
         mock_scp.assert_called_once()
         mock_record.assert_called_once()
+        # Extracted audio cleaned up after transfer
+        assert not extracted.exists()
 
     @patch("gm.files.embed_cover_art")
     @patch("gm.files.fetch_youtube_thumbnail")
@@ -776,6 +781,9 @@ class TestHandleFile:
         cover_call = mock_scp.call_args_list[1]
         assert cover_call[0][0] == yt_thumb
         assert cover_call[0][1].endswith("/cover.jpg")
+        # Locally-created files cleaned up after transfer
+        assert not extracted.exists()
+        assert not yt_thumb.exists()
 
     @patch("gm.files.record_import")
     @patch("gm.files.check_destination_exists", return_value=True)
@@ -1155,6 +1163,8 @@ class TestHandleFile:
         mock_extract.assert_called_once_with(f)
         mock_scp.assert_called_once()
         mock_record.assert_called_once()
+        # Extracted audio cleaned up after transfer
+        assert not extracted.exists()
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")
@@ -1205,6 +1215,8 @@ class TestHandleFile:
         mock_dup_action.assert_called_once_with("/mnt/nfs/music/Artist/Album/Video.opus")
         mock_scp.assert_not_called()
         mock_record.assert_not_called()
+        # Extracted audio cleaned up on skip
+        assert not extracted.exists()
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")
@@ -1255,6 +1267,8 @@ class TestHandleFile:
         mock_delete.assert_called_once_with(stale_dest)
         mock_scp.assert_called_once()
         mock_record.assert_called_once()
+        # Extracted audio cleaned up after transfer
+        assert not extracted.exists()
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")

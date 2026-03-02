@@ -436,6 +436,10 @@ def handle_file(
         if existing:
             action = prompt_duplicate_action(existing)
             if action == "skip":
+                if source != path and source.exists():
+                    source.unlink()
+                if thumbnail and thumbnail.exists():
+                    thumbnail.unlink()
                 print(f"{E_SKIP}{yellow('Skipped.')}")
                 return
             if action == "rename":
@@ -454,6 +458,12 @@ def handle_file(
     if thumbnail:
         cover_dest = str(PurePosixPath(dest_dir) / "cover.jpg")
         scp_transfer(thumbnail, cover_dest)
+
+    # Clean up locally-created files
+    if source != path and source.exists():
+        source.unlink()
+    if thumbnail and thumbnail.exists():
+        thumbnail.unlink()
 
     # Log the import
     record_import(ImportRecord(
