@@ -344,11 +344,12 @@ def handle_file(
     *,
     batch_meta: AudioMetadata | None = None,
     track_number: int = 0,
+    _from_directory: bool = False,
 ) -> None:
     """Process and transfer a local audio/video file to the music library."""
     # Print filename for standalone imports (batch mode prints its own header)
-    if batch_meta is None and track_number == 0:
-        print(f"\n{E_MUSIC}{bold_cyan(path.name)}")
+    if not _from_directory and batch_meta is None and track_number == 0:
+        print(f"\n{E_MUSIC}{bold_green(path.name)}")
 
     video_id = extract_video_id_from_filename(path.stem)
     is_video = is_video_file(path)
@@ -494,10 +495,10 @@ def handle_directory(path: Path) -> None:
     failures: list[tuple[Path, str]] = []
 
     for i, file in enumerate(all_files, 1):
-        print(f"\n{bold_cyan(f'[{i}/{total}]')} {E_MUSIC}{bold_cyan(file.name)}")
+        print(f"\n{bold_green(f'[{i}/{total}]')} {E_MUSIC}{bold_green(file.name)}")
         track = i if same_album else 0
         try:
-            handle_file(file, batch_meta=batch, track_number=track)
+            handle_file(file, batch_meta=batch, track_number=track, _from_directory=True)
         except Exception as exc:
             print(f"  {E_ERROR}{bold_red('Error:')} {exc}")
             failures.append((file, str(exc)))
