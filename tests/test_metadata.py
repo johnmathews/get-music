@@ -12,6 +12,7 @@ from gm.metadata import (
     AudioMetadata,
     check_destination_exists,
     check_video_id_exists,
+    extract_video_id_from_filename,
     humanize_name,
     list_existing_albums,
     list_existing_artists,
@@ -27,6 +28,19 @@ from gm.metadata import (
     suggest_match,
     build_destination_path,
 )
+
+
+class TestExtractVideoIdFromFilename:
+    """Test extracting YouTube video ID from filename stems."""
+
+    def test_youtube_style_filename(self) -> None:
+        assert extract_video_id_from_filename("Artist-Title-[dQw4w9WgXcQ]") == "dQw4w9WgXcQ"
+
+    def test_non_youtube_filename(self) -> None:
+        assert extract_video_id_from_filename("Artist-Title") == ""
+
+    def test_plain_filename(self) -> None:
+        assert extract_video_id_from_filename("song") == ""
 
 
 class TestHumanizeName:
@@ -589,6 +603,40 @@ class TestPromptMetadataWithSuggestion:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
         assert result.artist == "Led Zeplin"
+
+
+    @patch("gm.metadata.list_existing_albums", return_value=[])
+    @patch("gm.metadata.list_existing_artists", return_value=["Ex-Re"])
+    @patch("builtins.input", side_effect=[
+        "Ex:Re",         # artist prompt — colon sanitizes to same dir, keep as-is
+        "Ex:Re",         # album prompt
+        "Romance",       # title prompt
+        "Art Pop",       # genre prompt
+        "2019",          # date prompt
+    ])
+    def test_keeps_special_chars_when_sanitized_form_matches(
+        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+    ) -> None:
+        defaults = AudioMetadata()
+        result = prompt_metadata(defaults)
+        # "Ex:Re" sanitizes to "Ex-Re" which matches — keep the user's "Ex:Re"
+        assert result.artist == "Ex:Re"
+
+    @patch("gm.metadata.list_existing_albums", return_value=[])
+    @patch("gm.metadata.list_existing_artists", return_value=["AC-DC"])
+    @patch("builtins.input", side_effect=[
+        "AC/DC",         # artist prompt — slash sanitizes to same dir
+        "Back-In-Black", # album prompt
+        "Hells Bells",   # title prompt
+        "Rock",          # genre prompt
+        "1980",          # date prompt
+    ])
+    def test_keeps_slash_when_sanitized_form_matches(
+        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+    ) -> None:
+        defaults = AudioMetadata()
+        result = prompt_metadata(defaults)
+        assert result.artist == "AC/DC"
 
 
 class TestPromptBatchMetadata:

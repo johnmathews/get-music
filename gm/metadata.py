@@ -112,6 +112,12 @@ def read_metadata(path: Path) -> AudioMetadata:
 _YT_FILENAME_RE = re.compile(r"^([^-]+)-(.+)-\[([a-zA-Z0-9_-]{9,12})\]$")
 
 
+def extract_video_id_from_filename(stem: str) -> str:
+    """Extract YouTube video ID from a filename stem like 'Artist-Title-[videoID]'."""
+    match = _YT_FILENAME_RE.match(stem)
+    return match.group(3) if match else ""
+
+
 def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
     """Parse artist and title from a YouTube-style filename.
 
@@ -290,6 +296,10 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     """Check for a match and prompt the user if found. Returns final value."""
     match = suggest_match(user_input, existing)
     if not match or match == user_input:
+        return user_input
+    # User's input sanitizes to the same directory — keep their spelling.
+    # e.g. "Ex:Re" → "Ex-Re" matches existing "Ex-Re", keep "Ex:Re" for metadata.
+    if sanitize_filename(user_input) == match:
         return user_input
     humanized = humanize_name(match)
     if humanized == user_input:
