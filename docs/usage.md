@@ -22,6 +22,7 @@ via `python -m gm.cli`.
 gm https://www.youtube.com/watch?v=dQw4w9WgXcQ
 gm https://youtu.be/dQw4w9WgXcQ
 gm https://music.youtube.com/watch?v=abc123
+gm https://youtube.com/shorts/abc123
 ```
 
 This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and
@@ -119,6 +120,27 @@ Metadata (press Enter to accept default):
 - Type a new value to override
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
 - Album defaults to "YouTube" when not detected from a YouTube download
+- YouTube's generic "Music" genre tag is filtered out (it's a platform category, not a real genre)
+
+### Metadata Defaults
+
+`gm` extracts defaults from multiple sources, using the first available value:
+
+1. **Embedded tags** — mutagen reads artist, album, title, genre, date from the audio file
+2. **YouTube-style filenames** — files named `Artist_Name-Song_Title-[videoID]` (e.g., downloaded with yt-dlp) have
+   artist, title, and album ("YouTube") extracted from the filename pattern
+3. **Genre from history** — if you've imported songs by the same artist before, the most recently used genre is
+   suggested as the default
+4. **Date from file** — when no date tag is found, the file's creation date (macOS birth time, or modification time on
+   Linux) is used as the default
+
+### Date Normalization
+
+Dates are automatically normalized to `YYYY-MM-DD` format:
+
+- `20240115` (yt-dlp format) → `2024-01-15`
+- `2024-1-5` (unpadded) → `2024-01-05`
+- `1971` (bare year) → `1971` (kept as-is)
 
 ### Artist/Album Suggestions
 
@@ -159,6 +181,36 @@ When a duplicate is found:
 - **Rename**: re-prompts for all metadata fields so you can choose a different artist, album, or title — the file is then
   saved to the new destination
 
+## Cover Art
+
+Navidrome primarily reads cover art embedded in audio file metadata, so `gm` ensures artwork is both embedded in the
+audio file and saved as `cover.jpg` in the album directory.
+
+### YouTube downloads
+
+`yt-dlp` handles artwork automatically via `--embed-thumbnail`. The thumbnail is also copied to `cover.jpg` in the album
+directory.
+
+### Local file imports
+
+For local video files (`.mp4`, `.mkv`, etc.), `gm` tries to find artwork in this order:
+
+1. **Embedded thumbnail** — extracts attached picture streams from the video (e.g., album art embedded by yt-dlp)
+2. **YouTube thumbnail download** — if the filename contains a video ID (e.g., `Song-[dQw4w9WgXcQ].mp4`), downloads the
+   thumbnail from `img.youtube.com` (tries 1080p first, falls back to 480p)
+
+When a thumbnail is found, it is:
+
+- **Embedded** in the extracted audio file using mutagen (format-specific: ID3 APIC for mp3, MP4Cover for m4a,
+  METADATA_BLOCK_PICTURE for ogg/opus, FLAC Picture for flac)
+- **Copied** as `cover.jpg` to the album directory on the server
+
+### Metadata vs Filenames
+
+Metadata text fields (artist, album, title) preserve the original characters you type — "Ex:Re", "AC/DC", etc. Only
+the filesystem paths are sanitized (colons, slashes, and other unsafe characters replaced with hyphens). This means
+Navidrome displays the correct artist/album names while the files are stored safely on disk.
+
 ## Supported Formats
 
 ### Audio (processed directly)
@@ -195,9 +247,10 @@ All imports are recorded in a local SQLite database at `~/.local/share/gm/import
 
 - Timestamp
 - Source (URL or local path)
-- Artist, album, title
+- Artist, album, title, genre
 - Destination path on the server
 - File hash (SHA-256, for local files)
 - YouTube video ID (for YouTube downloads)
 
-This enables fast duplicate detection without needing SSH calls for every file.
+This enables fast duplicate detection without needing SSH calls for every file. The genre field is also used to suggest
+a default genre when importing new songs by a previously seen artist.
