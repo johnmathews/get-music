@@ -85,7 +85,6 @@ def read_metadata(path: Path) -> AudioMetadata:
         meta.artist = _first_tag(audio, "artist")
         meta.album = _first_tag(audio, "album")
         meta.title = _first_tag(audio, "title")
-        meta.genre = _first_tag(audio, "genre")
         meta.date = _first_tag(audio, "date")
         meta.description = _first_tag(audio, "description")
         meta.track_number = _first_tag(audio, "tracknumber")
@@ -105,9 +104,6 @@ def read_metadata(path: Path) -> AudioMetadata:
 
     if not meta.date:
         meta.date = _file_creation_date(path)
-
-    if meta.genre.lower() == "music":
-        meta.genre = ""
 
     meta.date = normalize_date(meta.date)
     return meta
@@ -341,14 +337,12 @@ def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
     album = _apply_suggestion(album, list_existing_albums(artist))
 
     title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
-    genre = _prompt_field("Genre", defaults.genre)
     date = _prompt_field("Date", defaults.date)
 
     return AudioMetadata(
         artist=artist,
         album=album,
         title=title,
-        genre=genre,
         date=date,
         description=defaults.description,
         track_number=defaults.track_number,
@@ -370,7 +364,7 @@ def _prompt_field(label: str, default: str) -> str:
 
 
 def prompt_batch_metadata() -> AudioMetadata:
-    """Prompt for shared metadata fields (artist, album, genre, date) once for a batch."""
+    """Prompt for shared metadata fields (artist, album, date) once for a batch."""
     print(f"\n{bold('Shared metadata for all files')} {dim('(press Enter to leave empty):')}")
 
     artist = _prompt_field("Artist", "")
@@ -379,10 +373,9 @@ def prompt_batch_metadata() -> AudioMetadata:
     album = _prompt_field("Album", "")
     album = _apply_suggestion(album, list_existing_albums(artist))
 
-    genre = _prompt_field("Genre", "")
     date = _prompt_field("Date", "")
 
-    return AudioMetadata(artist=artist, album=album, genre=genre, date=date)
+    return AudioMetadata(artist=artist, album=album, date=date)
 
 
 def prompt_title_only(
@@ -391,7 +384,6 @@ def prompt_title_only(
     """Merge batch metadata with per-file defaults, prompt only for title."""
     artist = batch.artist or defaults.artist
     album = batch.album or defaults.album
-    genre = batch.genre or defaults.genre
     date = batch.date or defaults.date
 
     title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
@@ -400,7 +392,6 @@ def prompt_title_only(
         artist=artist,
         album=album,
         title=title,
-        genre=genre,
         date=date,
         description=defaults.description,
         track_number=str(track_number) if track_number else defaults.track_number,

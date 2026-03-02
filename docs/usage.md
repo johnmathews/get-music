@@ -53,7 +53,7 @@ after transfer.
 All metadata from the source file is preserved through extraction. Rich metadata fields like description and comment
 (common in YouTube-sourced videos) are carried through unchanged into the final audio file — they are read from the
 source, passed through the processing pipeline, and written back. The interactive prompt only asks for core cataloging
-fields (artist, album, title, genre, date), but other embedded metadata is not stripped.
+fields (artist, album, title, date), but other embedded metadata is not stripped.
 
 ### Process a directory
 
@@ -71,7 +71,6 @@ Same album? [Y/n]: y
 Shared metadata for all files (press Enter to leave empty):
   Artist: Led Zeppelin
   Album: IV
-  Genre: Rock
   Date: 1971
 
 [1/12] 01-Black-Dog.flac
@@ -79,7 +78,7 @@ Shared metadata for all files (press Enter to leave empty):
 ```
 
 When files share the same album (default), each file gets automatic track numbering and only prompts for the title.
-Shared fields (artist, album, genre, date) are set once for the whole batch.
+Shared fields (artist, album, date) are set once for the whole batch.
 
 If files are from different artists or albums, answer "n" to get full metadata prompting for each file individually:
 
@@ -90,7 +89,6 @@ Same album? [Y/n]: n
   Artist []: Pink Floyd
   Album []: The Wall
   Title [song-a]: Another Brick in the Wall
-  Genre []: Rock
   Date []: 1979
 ```
 
@@ -138,7 +136,6 @@ Metadata (press Enter to accept default):
   Artist [Channel Name]: Actual Artist
   Album [YouTube]: Album Name
   Title [Video Title]:
-  Genre []:
   Date []:
 ```
 
@@ -146,20 +143,17 @@ Metadata (press Enter to accept default):
 - Type a new value to override
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
 - Album defaults to "YouTube" when not detected from a YouTube download
-- The generic "Music" genre tag is filtered out everywhere — from embedded audio tags, YouTube metadata, and import history lookups (it's a YouTube platform category, not a real genre)
-- When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source (like a "Music" genre) won't persist
+- When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source won't persist
 - Title suggestions automatically strip the artist name prefix — if the artist is "Joe Bloggs" and the detected title is "Joe Bloggs - My Song", the suggestion shows just "My Song"
 
 ### Metadata Defaults
 
 `gm` extracts defaults from multiple sources, using the first available value:
 
-1. **Embedded tags** — mutagen reads artist, album, title, genre, date from the audio file
+1. **Embedded tags** — mutagen reads artist, album, title, date from the audio file
 2. **YouTube-style filenames** — files named `Artist_Name-Song_Title-[videoID]` (e.g., downloaded with yt-dlp) have
    artist, title, and album ("YouTube") extracted from the filename pattern
-3. **Genre from history** — if you've imported songs by the same artist before, the most recently used genre is
-   suggested as the default
-4. **Date from file** — when no date tag is found, the file's creation date (macOS birth time, or modification time on
+3. **Date from file** — when no date tag is found, the file's creation date (macOS birth time, or modification time on
    Linux) is used as the default
 
 ### Date Normalization
@@ -277,11 +271,10 @@ All imports are recorded in a local SQLite database at `~/.local/share/gm/import
 
 - Timestamp
 - Source (URL or local path)
-- Artist, album, title, genre
+- Artist, album, title
 - Destination path on the server
 - File hash (SHA-256, for local files)
 - YouTube video ID (for YouTube downloads)
 
-This enables fast duplicate detection without needing SSH calls for every file. The genre field is also used to suggest
-a default genre when importing new songs by a previously seen artist. Stale records (for files deleted from the server)
-are automatically pruned during imports, or can be bulk-cleaned with `gm prune`.
+This enables fast duplicate detection without needing SSH calls for every file. Stale records (for files deleted from the
+server) are automatically pruned during imports, or can be bulk-cleaned with `gm prune`.

@@ -25,7 +25,7 @@ the server with the video ID in the filename.
 transfers via `scp`. Video files have audio extracted with `ffmpeg` first. Intermediate files are cleaned up
 automatically.
 
-**Directories** — prompts for shared metadata (artist, album, genre, date) once, then only asks for the title per file.
+**Directories** — prompts for shared metadata (artist, album, date) once, then only asks for the title per file.
 Automatic track numbering.
 
 ## Features

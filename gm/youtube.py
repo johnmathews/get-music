@@ -23,7 +23,7 @@ from gm.metadata import (
     write_metadata_ssh,
     MUSIC_ROOT,
 )
-from gm.history import ImportRecord, record_import, delete_import, find_by_video_id, find_genre_by_artist
+from gm.history import ImportRecord, record_import, delete_import, find_by_video_id
 from gm.ssh import ssh_run, SSH_HOST, quote_path
 
 def _make_temp_dir() -> str:
@@ -78,9 +78,6 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
 
     title = data.get("title", "") or ""
     album = data.get("album", "") or "YouTube"
-    genre = data.get("genre", "") or ""
-    if genre.lower() == "music":
-        genre = ""
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
 
@@ -92,7 +89,6 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
         artist=humanize_name(artist),
         album=humanize_name(album),
         title=humanize_name(title),
-        genre=genre,
         date=date,
         description=description,
         track_number=track_number,
@@ -156,10 +152,6 @@ def handle_youtube(url: str) -> None:
     )
     thumb_file = thumb_result.stdout.strip()
 
-    # Fill in genre from previous imports by the same artist
-    if not defaults.genre and defaults.artist:
-        defaults.genre = find_genre_by_artist(defaults.artist)
-
     # Prompt user for metadata
     meta = prompt_metadata(defaults)
     extension = PurePosixPath(audio_file).suffix
@@ -202,7 +194,6 @@ def handle_youtube(url: str) -> None:
         title=meta.title,
         destination=dest,
         video_id=video_id,
-        genre=meta.genre,
     ))
 
     print(f"{E_DONE}{bold_green('Done!')} Saved to: {cyan(dest)}")

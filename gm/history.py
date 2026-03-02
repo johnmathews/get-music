@@ -209,26 +209,6 @@ def format_log(records: list[ImportRecord]) -> str:
     return "\n".join(lines)
 
 
-def find_genre_by_artist(artist: str) -> str:
-    """Look up the most recent genre used for an artist."""
-    if not artist:
-        return ""
-    conn = _get_connection()
-    try:
-        row = conn.execute(
-            "SELECT genre FROM imports WHERE artist = ? AND genre != '' "
-            "ORDER BY id DESC LIMIT 1",
-            (artist,),
-        ).fetchone()
-        if not row:
-            return ""
-        genre = row[0]
-        if genre.lower() == "music":
-            return ""
-        return genre
-    finally:
-        conn.close()
-
 
 def _row_to_record(row: tuple[str, ...]) -> ImportRecord:
     """Convert a database row to an ImportRecord."""

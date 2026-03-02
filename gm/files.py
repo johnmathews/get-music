@@ -27,7 +27,7 @@ from gm.metadata import (
     read_metadata,
     write_metadata,
 )
-from gm.history import ImportRecord, record_import, compute_file_hash, delete_import, find_by_hash, find_by_video_id, find_genre_by_artist
+from gm.history import ImportRecord, record_import, compute_file_hash, delete_import, find_by_hash, find_by_video_id
 from gm.ssh import ssh_run, quote_path
 
 SCP_HOST = "music"
@@ -408,8 +408,6 @@ def handle_file(
         file_hash = compute_file_hash(source)
 
     defaults = read_metadata(source)
-    if not defaults.genre and defaults.artist:
-        defaults.genre = find_genre_by_artist(defaults.artist)
     if batch_meta is not None:
         meta = prompt_title_only(defaults, batch_meta, track_number)
     else:
@@ -473,7 +471,6 @@ def handle_file(
         title=meta.title,
         destination=dest,
         file_hash=file_hash,
-        genre=meta.genre,
         video_id=video_id,
     ))
 

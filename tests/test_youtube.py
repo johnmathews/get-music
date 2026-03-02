@@ -91,12 +91,12 @@ class TestParseYtdlpMetadata:
         assert meta.artist == "Real Artist"
         assert meta.album == "Album Name"
         assert meta.title == "Song Title"
-        assert meta.genre == "Rock"
+        assert meta.genre == ""
         assert meta.date == "2023-04-15"
         assert meta.description == "Official music video"
 
-    def test_filters_generic_music_genre(self) -> None:
-        data = {"uploader": "Artist", "title": "Song", "genre": "Music"}
+    def test_ignores_genre_from_json(self) -> None:
+        data = {"uploader": "Artist", "title": "Song", "genre": "Rock"}
         meta = parse_ytdlp_metadata(json.dumps(data))
         assert meta.genre == ""
 
@@ -162,7 +162,6 @@ class TestMakeTempDir:
         assert dir2.startswith("/tmp/gm-download-")
 
 
-@patch("gm.youtube.find_genre_by_artist", return_value="")
 @patch("gm.youtube.write_metadata_ssh")
 @patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
 class TestHandleYoutube:
@@ -184,7 +183,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -248,7 +246,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
@@ -297,7 +294,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         from gm.history import ImportRecord
 
@@ -329,7 +325,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -362,7 +357,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -406,7 +400,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         """Early video_id dup found, user overwrites — download proceeds."""
         from gm.history import ImportRecord
@@ -453,7 +446,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         """No early dup, but dest exists after download — user skips."""
         mock_ssh.side_effect = [
@@ -493,7 +485,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -534,7 +525,6 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
-        mock_find_genre: MagicMock,
     ) -> None:
         first_meta = AudioMetadata(
             artist="Artist", album="YouTube", title="Song"

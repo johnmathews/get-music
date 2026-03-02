@@ -33,7 +33,7 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
   automatically pruned. Prompts skip/overwrite/rename.
 - **Artist/album lookup** — fuzzy-matches user input against existing server directories using
   `difflib.get_close_matches`. Catches typos and normalizes spaces to hyphens.
-- **Batch directory import** — shared metadata (artist, album, genre, date) prompted once, per-file title-only prompt
+- **Batch directory import** — shared metadata (artist, album, date) prompted once, per-file title-only prompt
   with automatic track numbering.
 - **Import log** — SQLite at `~/.local/share/gm/imports.db`. Records timestamp, source, artist, album, title,
   destination, file_hash, video_id.
