@@ -43,7 +43,9 @@ gm ~/Downloads/video.mp4
 ```
 
 Audio files are read for metadata (via mutagen) and transferred via `scp`. Video files have their audio extracted first
-using `ffmpeg`, then transferred.
+using `ffmpeg`, then transferred. If the video has an embedded thumbnail (attached picture stream), it's extracted and
+used as cover art — both embedded in the audio file and saved as `cover.jpg`. For files with a YouTube video ID in the
+filename (e.g., `Song-[dQw4w9WgXcQ].mp4`), the thumbnail is downloaded directly from YouTube if not embedded.
 
 ### Process a directory
 
@@ -132,6 +134,8 @@ This prevents library fragmentation by catching:
 - **Spaces vs hyphens:** "Led Zeppelin" → matches "Led-Zeppelin"
 - **Typos:** "Led Zeplin" → fuzzy matches "Led-Zeppelin"
 - **Case differences:** "led zeppelin" → matches "Led-Zeppelin"
+- **Special characters:** "Ex:Re" or "AC/DC" → silently matches "Ex-Re" or "AC-DC" without prompting, preserving
+  the original characters in metadata
 
 Press Enter or `y` to accept the suggestion, or `n` to keep your original input.
 
