@@ -146,6 +146,8 @@ Metadata (press Enter to accept default):
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
 - Album defaults to "YouTube" when not detected from a YouTube download
 - The generic "Music" genre tag is filtered out everywhere — from embedded audio tags, YouTube metadata, and import history lookups (it's a YouTube platform category, not a real genre)
+- When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source (like a "Music" genre) won't persist
+- Title suggestions automatically strip the artist name prefix — if the artist is "Joe Bloggs" and the detected title is "Joe Bloggs - My Song", the suggestion shows just "My Song"
 
 ### Metadata Defaults
 

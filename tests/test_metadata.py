@@ -10,6 +10,7 @@ import pytest
 
 from gm.metadata import (
     AudioMetadata,
+    _strip_artist_prefix,
     check_destination_exists,
     check_video_id_exists,
     extract_video_id_from_filename,
@@ -759,17 +760,19 @@ class TestWriteMetadata:
         mock_audio.save.assert_called_once()
 
     @patch("gm.metadata.mutagen.File")
-    def test_skips_empty_tags(self, mock_file: MagicMock, tmp_path: Path) -> None:
+    def test_clears_empty_tags(self, mock_file: MagicMock, tmp_path: Path) -> None:
         mock_audio = MagicMock()
         mock_file.return_value = mock_audio
 
         meta = AudioMetadata(artist="Artist", album="", title="Song")
         write_metadata(tmp_path / "song.mp3", meta)
 
-        # album is empty, should not be set
-        calls = [c[0][0] for c in mock_audio.__setitem__.call_args_list]
-        assert "album" not in calls
-        assert "artist" in calls
+        # album is empty — should be deleted, not set
+        set_calls = [c[0][0] for c in mock_audio.__setitem__.call_args_list]
+        assert "album" not in set_calls
+        assert "artist" in set_calls
+        del_calls = [c[0][0] for c in mock_audio.__delitem__.call_args_list]
+        assert "album" in del_calls
 
     @patch("gm.metadata.mutagen.File", return_value=None)
     def test_handles_none_file(self, mock_file: MagicMock, tmp_path: Path) -> None:
@@ -854,3 +857,87 @@ class TestWriteMetadataSsh:
         assert "-metadata genre=Rock" in cmd
         assert "-metadata date=2024" in cmd
         assert "-metadata track=5" in cmd
+
+    @patch("gm.metadata.ssh_run")
+    def test_clears_empty_fields_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(artist="Artist", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
+        assert "-metadata artist=Artist" in cmd
+        assert "-metadata title=Song" in cmd
+        # Empty fields should be explicitly cleared
+        assert "-metadata genre=" in cmd
+        assert "-metadata date=" in cmd
+
+
+class TestStripArtistPrefix:
+    """Test stripping artist name from title suggestions."""
+
+    def test_strips_hyphen_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs - My Song", "Joe Bloggs") == "My Song"
+
+    def test_strips_en_dash_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs \u2013 My Song", "Joe Bloggs") == "My Song"
+
+    def test_strips_em_dash_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs \u2014 My Song", "Joe Bloggs") == "My Song"
+
+    def test_case_insensitive(self) -> None:
+        assert _strip_artist_prefix("joe bloggs - My Song", "Joe Bloggs") == "My Song"
+
+    def test_no_separator_no_strip(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs My Song", "Joe Bloggs") == "Joe Bloggs My Song"
+
+    def test_artist_not_at_start(self) -> None:
+        assert _strip_artist_prefix("My Song by Joe Bloggs", "Joe Bloggs") == "My Song by Joe Bloggs"
+
+    def test_empty_artist(self) -> None:
+        assert _strip_artist_prefix("Some Title", "") == "Some Title"
+
+    def test_empty_title(self) -> None:
+        assert _strip_artist_prefix("", "Joe Bloggs") == ""
+
+    def test_no_match(self) -> None:
+        assert _strip_artist_prefix("Other Artist - Song", "Joe Bloggs") == "Other Artist - Song"
+
+    def test_preserves_title_with_internal_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs - My Song - Live", "Joe Bloggs") == "My Song - Live"
+
+
+@patch("gm.metadata.list_existing_albums", return_value=[])
+@patch("gm.metadata.list_existing_artists", return_value=[])
+class TestTitleStripping:
+    """Test that artist prefix is stripped from title suggestions in prompts."""
+
+    @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "Rock", "2024"])
+    def test_prompt_metadata_strips_artist_from_title(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(
+            artist="Joe Bloggs", album="Album", title="Joe Bloggs - My Song",
+        )
+        result = prompt_metadata(defaults)
+        assert result.title == "My Song"
+
+    @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "Rock", "2024"])
+    def test_prompt_metadata_no_strip_when_no_separator(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(
+            artist="Joe Bloggs", album="Album", title="Unrelated Title",
+        )
+        result = prompt_metadata(defaults)
+        assert result.title == "Unrelated Title"
+
+
+class TestTitleStrippingBatch:
+    """Test artist prefix stripping in batch (title-only) prompts."""
+
+    @patch("builtins.input", return_value="")
+    def test_prompt_title_only_strips_artist(self, mock_input: MagicMock) -> None:
+        defaults = AudioMetadata(title="Joe Bloggs - My Song")
+        batch = AudioMetadata(artist="Joe Bloggs", album="Album")
+        result = prompt_title_only(defaults, batch, track_number=1)
+        assert result.title == "My Song"

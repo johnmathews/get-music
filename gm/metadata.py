@@ -200,10 +200,11 @@ def write_metadata(path: Path, meta: AudioMetadata) -> None:
 
     for attr, tag_key in _TAG_MAP.items():
         value = getattr(meta, attr, "")
-        if not value:
-            continue
         try:
-            audio[tag_key] = value
+            if value:
+                audio[tag_key] = value
+            else:
+                del audio[tag_key]
         except (KeyError, mutagen.MutagenError):
             pass
 
@@ -219,20 +220,20 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
     Best-effort: failures are silently ignored since the file is already
     in place with yt-dlp's embedded metadata.
     """
-    metadata_args: list[str] = []
-    for attr, tag in [
+    fields = [
         ("artist", "artist"),
         ("album", "album"),
         ("title", "title"),
         ("genre", "genre"),
         ("date", "date"),
         ("track_number", "track"),
-    ]:
-        value = getattr(meta, attr, "")
-        if value:
-            metadata_args.extend(["-metadata", f"{tag}={value}"])
-    if not metadata_args:
+    ]
+    if not any(getattr(meta, attr, "") for attr, _ in fields):
         return
+    metadata_args: list[str] = []
+    for attr, tag in fields:
+        value = getattr(meta, attr, "")
+        metadata_args.extend(["-metadata", f"{tag}={value}"])
 
     p = PurePosixPath(dest)
     tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
@@ -314,6 +315,21 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     return user_input
 
 
+def _strip_artist_prefix(title: str, artist: str) -> str:
+    """Strip the artist name from the beginning of a title suggestion.
+
+    Handles common separators: " - ", " – " (en-dash), " — " (em-dash).
+    Comparison is case-insensitive.
+    """
+    if not artist or not title:
+        return title
+    for sep in [" - ", " \u2013 ", " \u2014 "]:
+        prefix = artist + sep
+        if title.lower().startswith(prefix.lower()):
+            return title[len(prefix):]
+    return title
+
+
 def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
     """Prompt the user to confirm or override metadata fields."""
     print(f"\n{bold('Metadata')} {dim('(press Enter to accept default):')}")
@@ -324,7 +340,7 @@ def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
     album = _prompt_field("Album", defaults.album)
     album = _apply_suggestion(album, list_existing_albums(artist))
 
-    title = _prompt_field("Title", defaults.title)
+    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
     genre = _prompt_field("Genre", defaults.genre)
     date = _prompt_field("Date", defaults.date)
 
@@ -378,7 +394,7 @@ def prompt_title_only(
     genre = batch.genre or defaults.genre
     date = batch.date or defaults.date
 
-    title = _prompt_field("Title", defaults.title)
+    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
 
     return AudioMetadata(
         artist=artist,
