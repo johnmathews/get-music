@@ -18,6 +18,8 @@ from gm.history import (
     recent_imports,
     compute_file_hash,
     format_log,
+    delete_import,
+    all_imports,
 )
 
 
@@ -73,6 +75,42 @@ class TestRecordAndFind:
 
     def test_find_by_destination_empty_returns_empty(self) -> None:
         assert find_by_destination("") == []
+
+
+class TestDeleteImport:
+    """Test deleting import records by destination."""
+
+    def test_deletes_existing_record(self) -> None:
+        dest = "/mnt/nfs/music/Artist/Album/Song.mp3"
+        record_import(ImportRecord(source="/local/song.mp3", destination=dest))
+        assert len(find_by_destination(dest)) == 1
+        delete_import(dest)
+        assert find_by_destination(dest) == []
+
+    def test_noop_for_empty_destination(self) -> None:
+        record_import(ImportRecord(source="s1", destination="/some/path"))
+        delete_import("")
+        assert len(all_imports()) == 1
+
+    def test_noop_for_nonexistent_destination(self) -> None:
+        record_import(ImportRecord(source="s1", destination="/some/path"))
+        delete_import("/nonexistent")
+        assert len(all_imports()) == 1
+
+
+class TestAllImports:
+    """Test retrieving all import records."""
+
+    def test_returns_all_records_in_order(self) -> None:
+        for i in range(3):
+            record_import(ImportRecord(source=f"s{i}", title=f"Song-{i}"))
+        results = all_imports()
+        assert len(results) == 3
+        assert results[0].title == "Song-0"
+        assert results[2].title == "Song-2"
+
+    def test_empty_db(self) -> None:
+        assert all_imports() == []
 
 
 class TestFindGenreByArtist:

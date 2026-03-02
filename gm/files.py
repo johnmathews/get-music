@@ -22,7 +22,7 @@ from gm.metadata import (
     read_metadata,
     write_metadata,
 )
-from gm.history import ImportRecord, record_import, compute_file_hash, find_by_hash, find_genre_by_artist
+from gm.history import ImportRecord, record_import, compute_file_hash, delete_import, find_by_hash, find_by_video_id, find_genre_by_artist
 from gm.ssh import ssh_run, quote_path
 
 SCP_HOST = "music"
@@ -349,6 +349,19 @@ def handle_file(
     thumbnail: Path | None = None
     video_id = extract_video_id_from_filename(path.stem)
 
+    # Early duplicate check by video ID (before expensive extraction)
+    if video_id:
+        vid_hits = find_by_video_id(video_id)
+        if vid_hits:
+            hit_dest = vid_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                action = prompt_duplicate_action(hit_dest)
+                if action == "skip":
+                    print("Skipped.")
+                    return
+
     if is_video_file(path):
         print(f"Extracting audio from video: {path.name}")
         source, thumbnail = extract_audio_from_video(path)
@@ -377,7 +390,11 @@ def handle_file(
     existing = ""
     log_hits = find_by_hash(file_hash)
     if log_hits:
-        existing = log_hits[0].destination
+        hit_dest = log_hits[0].destination
+        if hit_dest and not check_destination_exists(hit_dest):
+            delete_import(hit_dest)
+        else:
+            existing = hit_dest
     if not existing and check_destination_exists(dest):
         existing = dest
 

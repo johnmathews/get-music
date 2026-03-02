@@ -28,7 +28,8 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 ## Key Features
 
 - **Duplicate detection** — three layers: local SQLite log (by file hash or video ID), SSH filesystem scan for video ID,
-  destination path existence check. Prompts skip/overwrite/rename.
+  destination path existence check. Log-based hits are live-verified on disk; stale records (deleted files) are
+  automatically pruned. Prompts skip/overwrite/rename.
 - **Artist/album lookup** — fuzzy-matches user input against existing server directories using
   `difflib.get_close_matches`. Catches typos and normalizes spaces to hyphens.
 - **Batch directory import** — shared metadata (artist, album, genre, date) prompted once, per-file title-only prompt
@@ -51,6 +52,7 @@ gm <youtube-url>
 gm <directory>
 gm <filename>
 gm log [N]
+gm prune
 gm help
 ```
 

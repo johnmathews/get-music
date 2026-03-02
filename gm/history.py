@@ -124,6 +124,31 @@ def find_by_hash(file_hash: str) -> list[ImportRecord]:
         conn.close()
 
 
+def delete_import(destination: str) -> None:
+    """Delete an import record by destination path."""
+    if not destination:
+        return
+    conn = _get_connection()
+    try:
+        conn.execute("DELETE FROM imports WHERE destination = ?", (destination,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def all_imports() -> list[ImportRecord]:
+    """Return all import records."""
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT timestamp, source, artist, album, title, destination, "
+            "file_hash, video_id, genre FROM imports ORDER BY id"
+        ).fetchall()
+        return [_row_to_record(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def find_by_destination(dest: str) -> list[ImportRecord]:
     """Look up imports by destination path."""
     if not dest:

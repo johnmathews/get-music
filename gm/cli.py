@@ -51,6 +51,7 @@ Usage:
   gm <file>          Process and transfer a local audio/video file
   gm <directory>     Process all audio/video files in a directory
   gm log [N]         Show recent imports (default: 20)
+  gm prune           Remove stale log entries for deleted files
   gm help            Show this help message
 
 Examples:
@@ -75,6 +76,20 @@ def main(argv: list[str] | None = None) -> None:
         limit = int(args[1]) if len(args) > 1 else 20
         records = recent_imports(limit=limit)
         print(format_log(records))
+        return
+
+    if args[0] == "prune":
+        from gm.history import all_imports, delete_import
+        from gm.metadata import check_destination_exists
+
+        records = all_imports()
+        pruned = 0
+        for record in records:
+            if record.destination and not check_destination_exists(record.destination):
+                print(f"  Stale: {record.destination}")
+                delete_import(record.destination)
+                pruned += 1
+        print(f"Pruned {pruned} stale record(s) out of {len(records)} total.")
         return
 
     arg = args[0]

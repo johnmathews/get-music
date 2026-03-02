@@ -20,7 +20,7 @@ from gm.metadata import (
     write_metadata_ssh,
     MUSIC_ROOT,
 )
-from gm.history import ImportRecord, record_import, find_by_video_id, find_genre_by_artist
+from gm.history import ImportRecord, record_import, delete_import, find_by_video_id, find_genre_by_artist
 from gm.ssh import ssh_run, SSH_HOST, quote_path
 
 def _make_temp_dir() -> str:
@@ -147,7 +147,11 @@ def handle_youtube(url: str) -> None:
     if video_id:
         log_hits = find_by_video_id(video_id)
         if log_hits:
-            existing = log_hits[0].destination
+            hit_dest = log_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
         if not existing:
             existing = check_video_id_exists(artist_dir, video_id)
     if not existing and check_destination_exists(dest):

@@ -778,7 +778,7 @@ class TestHandleFile:
         assert cover_call[0][1].endswith("/cover.jpg")
 
     @patch("gm.files.record_import")
-    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.check_destination_exists", return_value=True)
     @patch("gm.files.find_by_hash")
     @patch("gm.files.compute_file_hash", return_value="duphash")
     @patch("gm.files.scp_transfer")
@@ -1056,6 +1056,177 @@ class TestHandleFile:
 
         record = mock_record.call_args[0][0]
         assert record.video_id == "dQw4w9WgXcQ"
+
+    @patch("gm.files.find_by_video_id")
+    @patch("gm.files.check_destination_exists", return_value=True)
+    @patch("gm.files.prompt_duplicate_action", return_value="skip")
+    @patch("gm.files.extract_audio_from_video")
+    def test_early_video_id_duplicate_skip_skips_extraction(
+        self,
+        mock_extract: MagicMock,
+        mock_dup_action: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from gm.history import ImportRecord
+
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp4"
+        f.write_bytes(b"\x00")
+
+        mock_find_vid.return_value = [ImportRecord(destination="/mnt/nfs/music/Artist/Album/Song-[dQw4w9WgXcQ].opus")]
+
+        handle_file(f)
+
+        mock_find_vid.assert_called_once_with("dQw4w9WgXcQ")
+        mock_dup_action.assert_called_once_with("/mnt/nfs/music/Artist/Album/Song-[dQw4w9WgXcQ].opus")
+        mock_extract.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Skipped." in captured.out
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", side_effect=[True, False])
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.extract_audio_from_video")
+    @patch("gm.files.find_by_video_id")
+    @patch("gm.files.prompt_duplicate_action", return_value="overwrite")
+    def test_early_video_id_duplicate_overwrite_proceeds(
+        self,
+        mock_dup_action: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_extract: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+        from gm.history import ImportRecord
+
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp4"
+        f.write_bytes(b"\x00")
+        extracted = tmp_path / "Artist-Song-[dQw4w9WgXcQ].opus"
+        extracted.write_bytes(b"\x00")
+
+        mock_find_vid.return_value = [ImportRecord(destination="/mnt/nfs/music/Artist/Album/Song-[dQw4w9WgXcQ].opus")]
+        mock_extract.return_value = (extracted, None)
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+
+        handle_file(f)
+
+        mock_find_vid.assert_called_once_with("dQw4w9WgXcQ")
+        mock_dup_action.assert_called_once()
+        mock_extract.assert_called_once_with(f)
+        mock_scp.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.delete_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_video_id")
+    def test_stale_video_id_hit_skips_prompt(
+        self,
+        mock_find_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_delete: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+        from gm.history import ImportRecord
+
+        f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
+        f.write_bytes(b"\x00")
+
+        stale_dest = "/mnt/nfs/music/Artist/Album/Song-[dQw4w9WgXcQ].opus"
+        mock_find_vid.return_value = [ImportRecord(destination=stale_dest)]
+        # check_destination_exists returns False (file gone)
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+
+        handle_file(f)
+
+        # Stale record deleted, no duplicate prompt, extraction proceeds
+        mock_delete.assert_called_once_with(stale_dest)
+        mock_scp.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.files.record_import")
+    @patch("gm.files.find_by_hash")
+    @patch("gm.files.compute_file_hash", return_value="duphash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.delete_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    def test_stale_hash_hit_skips_prompt(
+        self,
+        mock_check_dest: MagicMock,
+        mock_delete: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_record: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+        from gm.history import ImportRecord
+
+        f = tmp_path / "song.mp3"
+        f.write_bytes(b"\x00")
+
+        stale_dest = "/mnt/nfs/music/Artist/Album/Song.mp3"
+        mock_find_hash.return_value = [ImportRecord(destination=stale_dest)]
+        # check_destination_exists returns False (file gone)
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+
+        handle_file(f)
+
+        # Stale record deleted, no duplicate prompt, transfer proceeds
+        mock_delete.assert_called_once_with(stale_dest)
+        mock_scp.assert_called_once()
+        mock_record.assert_called_once()
 
 
 class TestHandleDirectory:

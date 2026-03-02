@@ -103,6 +103,25 @@ gm log        # Show last 20 imports
 gm log 50     # Show last 50 imports
 ```
 
+### Prune stale log entries
+
+```bash
+gm prune
+```
+
+If you've deleted files from the NFS mount (e.g., `rm -rf` on the server), the import log still has records for those
+files. This can cause false duplicate hits on re-import. `gm prune` checks every record's destination against the server
+and removes entries for files that no longer exist:
+
+```
+  Stale: /mnt/nfs/music/Artist/Album/Song.opus
+  Stale: /mnt/nfs/music/Artist/Album/Song2.opus
+Pruned 2 stale record(s) out of 150 total.
+```
+
+Note: stale log entries are also cleaned up automatically during normal imports — when a duplicate check finds a log hit
+whose file no longer exists on disk, the stale record is silently deleted and the import proceeds.
+
 ### Help
 
 ```bash
@@ -171,7 +190,9 @@ Press Enter or `y` to accept the suggestion, or `n` to keep your original input.
 
 Before transferring any file, `gm` checks for duplicates in three ways:
 
-1. **Import log** (fast, local) — checks the SQLite database by file hash (local files) or YouTube video ID
+1. **Import log** (fast, local) — checks the SQLite database by file hash (local files) or YouTube video ID. Log hits
+   are **live-verified** on the server — if the file has been deleted, the stale record is automatically removed and the
+   import proceeds as if no duplicate existed.
 2. **Filesystem scan** — for YouTube, checks if a file with `[video_id]` already exists under the artist directory
 3. **Destination path** — checks if a file already exists at the exact destination path on the server
 
@@ -259,4 +280,5 @@ All imports are recorded in a local SQLite database at `~/.local/share/gm/import
 - YouTube video ID (for YouTube downloads)
 
 This enables fast duplicate detection without needing SSH calls for every file. The genre field is also used to suggest
-a default genre when importing new songs by a previously seen artist.
+a default genre when importing new songs by a previously seen artist. Stale records (for files deleted from the server)
+are automatically pruned during imports, or can be bulk-cleaned with `gm prune`.

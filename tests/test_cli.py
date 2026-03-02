@@ -116,3 +116,71 @@ class TestLogSubcommand:
     ) -> None:
         main(["log", "5"])
         mock_recent.assert_called_once_with(limit=5)
+
+
+class TestPruneSubcommand:
+    """Test gm prune subcommand."""
+
+    @patch("gm.metadata.check_destination_exists", return_value=True)
+    @patch("gm.history.all_imports")
+    def test_prune_no_stale_records(
+        self,
+        mock_all: MagicMock,
+        mock_check: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from gm.history import ImportRecord
+
+        mock_all.return_value = [
+            ImportRecord(destination="/mnt/nfs/music/Artist/Album/Song.mp3"),
+        ]
+
+        main(["prune"])
+
+        captured = capsys.readouterr()
+        assert "Pruned 0 stale record(s) out of 1 total." in captured.out
+
+    @patch("gm.history.delete_import")
+    @patch("gm.metadata.check_destination_exists", return_value=False)
+    @patch("gm.history.all_imports")
+    def test_prune_deletes_stale_records(
+        self,
+        mock_all: MagicMock,
+        mock_check: MagicMock,
+        mock_delete: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from gm.history import ImportRecord
+
+        mock_all.return_value = [
+            ImportRecord(destination="/mnt/nfs/music/Artist/Album/Song.mp3"),
+            ImportRecord(destination="/mnt/nfs/music/Artist/Album/Song2.mp3"),
+        ]
+
+        main(["prune"])
+
+        assert mock_delete.call_count == 2
+        captured = capsys.readouterr()
+        assert "Stale: /mnt/nfs/music/Artist/Album/Song.mp3" in captured.out
+        assert "Stale: /mnt/nfs/music/Artist/Album/Song2.mp3" in captured.out
+        assert "Pruned 2 stale record(s) out of 2 total." in captured.out
+
+    @patch("gm.metadata.check_destination_exists")
+    @patch("gm.history.all_imports")
+    def test_prune_skips_empty_destination(
+        self,
+        mock_all: MagicMock,
+        mock_check: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from gm.history import ImportRecord
+
+        mock_all.return_value = [
+            ImportRecord(destination=""),
+        ]
+
+        main(["prune"])
+
+        mock_check.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Pruned 0 stale record(s) out of 1 total." in captured.out

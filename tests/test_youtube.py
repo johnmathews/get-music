@@ -234,6 +234,55 @@ class TestHandleYoutube:
     @patch("gm.youtube.check_destination_exists", return_value=False)
     @patch("gm.youtube.check_video_id_exists", return_value="")
     @patch("gm.youtube.find_by_video_id")
+    @patch("gm.youtube.delete_import")
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_stale_video_id_hit_continues(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_delete: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+    ) -> None:
+        from gm.metadata import AudioMetadata
+        from gm.history import ImportRecord
+
+        stale_dest = "/mnt/nfs/music/Artist/YouTube/Song-[abc123].opus"
+        mock_find_vid.return_value = [ImportRecord(destination=stale_dest)]
+        # check_destination_exists returns False (file gone) — default from class decorator
+
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="YouTube", title="Song"
+        )
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        # Stale record deleted, download continues
+        mock_delete.assert_called_once_with(stale_dest)
+        mock_record.assert_called_once()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=True)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id")
     @patch("gm.youtube.prompt_duplicate_action", return_value="skip")
     @patch("gm.youtube.ssh_run")
     @patch("gm.youtube.prompt_metadata")
