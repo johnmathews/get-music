@@ -47,7 +47,8 @@ Audio files are read for metadata (via mutagen) and transferred via `scp`. Video
 using `ffmpeg` (stream copy, no re-encoding), then transferred. If the video has an embedded thumbnail (attached picture
 stream), it's extracted and used as cover art — both embedded in the audio file and saved as `cover.jpg`. For files with
 a YouTube video ID in the filename (e.g., `Song-[dQw4w9WgXcQ].mp4`), the thumbnail is downloaded directly from YouTube
-if not embedded.
+if not embedded. Intermediate files created during processing (extracted audio, thumbnails) are automatically cleaned up
+after transfer.
 
 All metadata from the source file is preserved through extraction. Rich metadata fields like description and comment
 (common in YouTube-sourced videos) are carried through unchanged into the final audio file — they are read from the

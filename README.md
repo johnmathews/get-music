@@ -18,16 +18,22 @@ gm log                                             # view import history
 gm help                                            # show help
 ```
 
-**YouTube** — downloads audio in its native format via `yt-dlp`, embeds metadata and thumbnails, and places the file on the server with the video ID in the filename.
+**YouTube** — downloads audio in its native format via `yt-dlp`, embeds metadata and thumbnails, and places the file on
+the server with the video ID in the filename.
 
-**Files** — reads metadata with [mutagen](https://mutagen.readthedocs.io/), prompts you to confirm or edit, then transfers via `scp`. Video files have audio extracted with `ffmpeg` first.
+**Files** — reads metadata with [mutagen](https://mutagen.readthedocs.io/), prompts you to confirm or edit, then
+transfers via `scp`. Video files have audio extracted with `ffmpeg` first. Intermediate files are cleaned up
+automatically.
 
-**Directories** — prompts for shared metadata (artist, album, genre, date) once, then only asks for the title per file. Automatic track numbering.
+**Directories** — prompts for shared metadata (artist, album, genre, date) once, then only asks for the title per file.
+Automatic track numbering.
 
 ## Features
 
-- **Duplicate detection** — checks a local import log and the remote filesystem before transferring. Prompts to skip, overwrite, or rename.
-- **Artist/album suggestions** — fuzzy-matches your input against existing directories on the server to prevent fragmentation.
+- **Duplicate detection** — checks a local import log and the remote filesystem before transferring. Prompts to skip,
+  overwrite, or rename.
+- **Artist/album suggestions** — fuzzy-matches your input against existing directories on the server to prevent
+  fragmentation.
 - **Import log** — all imports recorded locally. View with `gm log`.
 - **Native audio format** — keeps the original format from YouTube (usually opus). No unnecessary transcoding.
 
