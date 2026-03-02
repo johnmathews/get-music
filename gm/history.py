@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from gm.ui import bold, cyan, dim
+
 DB_PATH = Path("~/.local/share/gm/imports.db").expanduser()
 
 _CREATE_TABLE = """\
@@ -194,15 +196,15 @@ def format_log(records: list[ImportRecord]) -> str:
         return "No imports found."
     lines: list[str] = []
     for r in records:
-        parts = [r.timestamp[:19]]
+        parts = [dim(r.timestamp[:19])]
         if r.artist:
-            parts.append(r.artist)
+            parts.append(bold(r.artist))
         if r.album:
             parts.append(f"/ {r.album}")
         if r.title:
-            parts.append(f"- {r.title}")
+            parts.append(f"- {cyan(r.title)}")
         if r.video_id:
-            parts.append(f"[{r.video_id}]")
+            parts.append(dim(f"[{r.video_id}]"))
         lines.append("  ".join(parts))
     return "\n".join(lines)
 

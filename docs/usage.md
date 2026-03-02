@@ -190,9 +190,9 @@ Press Enter or `y` to accept the suggestion, or `n` to keep your original input.
 
 Before transferring any file, `gm` checks for duplicates in three ways:
 
-1. **Import log** (fast, local) — checks the SQLite database by file hash (local files) or YouTube video ID. Log hits
-   are **live-verified** on the server — if the file has been deleted, the stale record is automatically removed and the
-   import proceeds as if no duplicate existed.
+1. **Import log** (fast, local) — checks the SQLite database by YouTube video ID and file hash (local files) or
+   YouTube video ID (YouTube downloads). Log hits are **live-verified** on the server — if the file has been deleted,
+   the stale record is automatically removed and the import proceeds as if no duplicate existed.
 2. **Filesystem scan** — for YouTube, checks if a file with `[video_id]` already exists under the artist directory
 3. **Destination path** — checks if a file already exists at the exact destination path on the server
 

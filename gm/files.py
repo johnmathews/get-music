@@ -10,6 +10,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
 
+from gm.ui import (
+    E_CHECK, E_DONE, E_ERROR, E_FOLDER, E_MUSIC, E_SCISSORS, E_SEARCH,
+    E_SEND, E_SKIP, E_WARN, E_WRITE,
+    bold, bold_cyan, bold_green, bold_red, cyan, green, yellow,
+)
 from gm.metadata import (
     AudioMetadata,
     build_destination_path,
@@ -343,30 +348,17 @@ def handle_file(
     """Process and transfer a local audio/video file to the music library."""
     # Print filename for standalone imports (batch mode prints its own header)
     if batch_meta is None and track_number == 0:
-        print(f"\n{path.name}")
+        print(f"\n{E_MUSIC}{bold_cyan(path.name)}")
 
     source = path
     thumbnail: Path | None = None
     video_id = extract_video_id_from_filename(path.stem)
 
-    # Early duplicate check by video ID (before expensive extraction)
-    if video_id:
-        vid_hits = find_by_video_id(video_id)
-        if vid_hits:
-            hit_dest = vid_hits[0].destination
-            if hit_dest and not check_destination_exists(hit_dest):
-                delete_import(hit_dest)
-            else:
-                action = prompt_duplicate_action(hit_dest)
-                if action == "skip":
-                    print("Skipped.")
-                    return
-
     if is_video_file(path):
-        print(f"Extracting audio from video: {path.name}")
+        print(f"{E_SCISSORS}Extracting audio from video: {cyan(path.name)}")
         source, thumbnail = extract_audio_from_video(path)
     elif not is_audio_file(path):
-        print(f"Skipping unsupported file: {path.name}")
+        print(f"{E_SKIP}{yellow(f'Skipping unsupported file: {path.name}')}")
         return
 
     # If no embedded thumbnail, try downloading from YouTube
@@ -384,35 +376,47 @@ def handle_file(
     dest = build_destination_path(meta, extension, video_id=video_id)
     dest_dir = str(PurePosixPath(dest).parent)
 
-    # Check for duplicates: local log by hash, then filesystem
-    print("Checking for duplicates...")
+    # Check for duplicates: log (video ID + hash), then filesystem
+    print(f"{E_SEARCH}Checking for duplicates...")
     file_hash = compute_file_hash(source)
     existing = ""
-    log_hits = find_by_hash(file_hash)
-    if log_hits:
-        hit_dest = log_hits[0].destination
-        if hit_dest and not check_destination_exists(hit_dest):
-            delete_import(hit_dest)
-        else:
-            existing = hit_dest
+
+    if video_id:
+        vid_hits = find_by_video_id(video_id)
+        if vid_hits:
+            hit_dest = vid_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
+
+    if not existing:
+        log_hits = find_by_hash(file_hash)
+        if log_hits:
+            hit_dest = log_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
+
     if not existing and check_destination_exists(dest):
         existing = dest
 
     if existing:
         action = prompt_duplicate_action(existing)
         if action == "skip":
-            print("Skipped.")
+            print(f"{E_SKIP}{yellow('Skipped.')}")
             return
         if action == "rename":
             meta = prompt_metadata(meta)
             dest = build_destination_path(meta, extension, video_id=video_id)
             dest_dir = str(PurePosixPath(dest).parent)
 
-    print("Writing metadata...")
+    print(f"{E_WRITE}Writing metadata...")
     write_metadata(source, meta)
     if thumbnail:
         embed_cover_art(source, thumbnail)
-    print("Transferring...")
+    print(f"{E_SEND}Transferring...")
     ssh_mkdir(dest_dir)
     scp_transfer(source, dest)
 
@@ -432,7 +436,7 @@ def handle_file(
         video_id=video_id,
     ))
 
-    print(f"Transferred: {path.name} -> {dest}")
+    print(f"{E_CHECK}{green('Transferred:')} {cyan(dest)}")
 
 
 def handle_directory(path: Path) -> None:
@@ -447,11 +451,11 @@ def handle_directory(path: Path) -> None:
     all_files = sorted(unique_audio + video_files)
 
     if not all_files:
-        print("No audio or video files found.")
+        print(f"{E_WARN}{yellow('No audio or video files found.')}")
         return
 
     total = len(all_files)
-    print(f"Found {total} file(s)")
+    print(f"{E_FOLDER}Found {bold(str(total))} file(s)")
 
     same_album = input("Same album? [Y/n]: ").strip().lower() != "n"
     batch: AudioMetadata | None = None
@@ -460,17 +464,17 @@ def handle_directory(path: Path) -> None:
     failures: list[tuple[Path, str]] = []
 
     for i, file in enumerate(all_files, 1):
-        print(f"\n[{i}/{total}] {file.name}")
+        print(f"\n{bold_cyan(f'[{i}/{total}]')} {E_MUSIC}{bold_cyan(file.name)}")
         track = i if same_album else 0
         try:
             handle_file(file, batch_meta=batch, track_number=track)
         except Exception as exc:
-            print(f"  Error: {exc}")
+            print(f"  {E_ERROR}{bold_red('Error:')} {exc}")
             failures.append((file, str(exc)))
 
     succeeded = total - len(failures)
     if failures:
-        print(f"\n{len(failures)} file(s) failed:")
+        print(f"\n{E_ERROR}{bold_red(f'{len(failures)} file(s) failed:')}")
         for failed_path, reason in failures:
-            print(f"  {failed_path.name}: {reason}")
-    print(f"\nDone! {succeeded}/{total} file(s) processed.")
+            print(f"  {bold_red(failed_path.name)}: {reason}")
+    print(f"\n{E_DONE}{bold_green('Done!')} {bold(str(succeeded))}/{bold(str(total))} file(s) processed.")

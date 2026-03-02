@@ -7,6 +7,10 @@ import shlex
 import uuid
 from pathlib import PurePosixPath
 
+from gm.ui import (
+    E_DONE, E_LINK, E_SKIP,
+    bold_cyan, bold_green, cyan, yellow,
+)
 from gm.metadata import (
     AudioMetadata,
     build_destination_path,
@@ -98,7 +102,7 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
 
 def handle_youtube(url: str) -> None:
     """Download audio from YouTube URL via SSH + yt-dlp on LXC."""
-    print(f"Downloading from YouTube: {url}")
+    print(f"{E_LINK}{bold_cyan('Downloading from YouTube:')} {url}")
 
     temp_dir = _make_temp_dir()
 
@@ -161,7 +165,7 @@ def handle_youtube(url: str) -> None:
         action = prompt_duplicate_action(existing)
         if action == "skip":
             ssh_run(f"rm -rf {temp_dir}")
-            print("Skipped.")
+            print(f"{E_SKIP}{yellow('Skipped.')}")
             return
         if action == "rename":
             meta = prompt_metadata(meta)
@@ -196,4 +200,4 @@ def handle_youtube(url: str) -> None:
         genre=meta.genre,
     ))
 
-    print(f"Done! Saved to: {dest}")
+    print(f"{E_DONE}{bold_green('Done!')} Saved to: {cyan(dest)}")

@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 
 import mutagen
 
+from gm.ui import E_WARN, bold, bold_cyan, bold_yellow, cyan, dim
 from gm.ssh import ssh_run, quote_path
 
 
@@ -307,7 +308,7 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     humanized = humanize_name(match)
     if humanized == user_input:
         return user_input  # Directory exists; user input already correct
-    confirm = input(f"  Did you mean '{humanized}'? [Y/n]: ").strip().lower()
+    confirm = input(f"  Did you mean {bold_cyan(humanized)}? [Y/n]: ").strip().lower()
     if confirm != "n":
         return humanized
     return user_input
@@ -315,7 +316,7 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
 
 def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
     """Prompt the user to confirm or override metadata fields."""
-    print("\nMetadata (press Enter to accept default):")
+    print(f"\n{bold('Metadata')} {dim('(press Enter to accept default):')}")
 
     artist = _prompt_field("Artist", defaults.artist)
     artist = _apply_suggestion(artist, list_existing_artists())
@@ -344,17 +345,17 @@ def _prompt_field(label: str, default: str) -> str:
     Type '-' or a blank space to clear a default value (set it to empty string).
     """
     if default:
-        raw = input(f"  {label} [{default}]: ")
+        raw = input(f"  {bold(label)} [{dim(default)}]: ")
         value = raw.strip()
         if value == "-" or (raw and not value):
             return ""
         return value if value else default
-    return input(f"  {label}: ").strip()
+    return input(f"  {bold(label)}: ").strip()
 
 
 def prompt_batch_metadata() -> AudioMetadata:
     """Prompt for shared metadata fields (artist, album, genre, date) once for a batch."""
-    print("\nShared metadata for all files (press Enter to leave empty):")
+    print(f"\n{bold('Shared metadata for all files')} {dim('(press Enter to leave empty):')}")
 
     artist = _prompt_field("Artist", "")
     artist = _apply_suggestion(artist, list_existing_artists())
@@ -412,8 +413,8 @@ def prompt_duplicate_action(existing_path: str) -> str:
 
     Returns "skip", "overwrite", or "rename".
     """
-    print(f"\n  Duplicate found: {existing_path}")
-    choice = input("  Action — [s]kip / [o]verwrite / [r]ename: ").strip().lower()
+    print(f"\n  {E_WARN}{bold_yellow('Duplicate found:')} {cyan(existing_path)}")
+    choice = input(f"  Action — [{bold('s')}]kip / [{bold('o')}]verwrite / [{bold('r')}]ename: ").strip().lower()
     if choice in ("o", "overwrite"):
         return "overwrite"
     if choice in ("r", "rename"):
