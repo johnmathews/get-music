@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import subprocess
+import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
@@ -219,6 +221,98 @@ def _embed_flac(audio_path: Path, image_data: bytes, mime: str) -> None:
     audio.save()
 
 
+def get_media_duration(path: Path) -> float:
+    """Get media duration in seconds using ffprobe. Returns 0.0 on failure."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    try:
+        return float(result.stdout.strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+
+_BAR_WIDTH = 30
+
+
+def run_ffmpeg(cmd: list[str], duration: float = 0.0) -> None:
+    """Run an ffmpeg command with a single-line progress bar.
+
+    Appends progress flags to the command, reads ffmpeg's key=value progress
+    output, and renders a compact progress line to stderr.
+    """
+    cmd = cmd + ["-v", "error", "-progress", "pipe:1", "-nostats"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert proc.stdout is not None  # for type checker
+
+    stats: dict[str, str] = {}
+    start = time.monotonic()
+
+    for line in proc.stdout:
+        line = line.strip()
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        stats[key] = value
+
+        if key != "progress":
+            continue
+
+        # Build progress line from accumulated stats
+        parts: list[str] = []
+        pct = 0.0
+
+        out_time_us_str = stats.get("out_time_us", "0")
+        try:
+            out_time_us = int(out_time_us_str)
+        except ValueError:
+            out_time_us = 0
+
+        if duration > 0 and out_time_us > 0:
+            pct = min(out_time_us / (duration * 1_000_000), 1.0)
+            filled = int(pct * _BAR_WIDTH)
+            bar = "\u2588" * filled + "\u2591" * (_BAR_WIDTH - filled)
+            parts.append(f"{bar} {pct:4.0%}")
+
+            elapsed = time.monotonic() - start
+            if pct > 0 and elapsed > 0:
+                eta = elapsed / pct - elapsed
+                parts.append(f"ETA {int(eta // 60)}:{int(eta % 60):02d}")
+
+        total_size = stats.get("total_size", "N/A")
+        if total_size != "N/A":
+            try:
+                parts.append(f"{int(total_size) // 1024}kB")
+            except ValueError:
+                pass
+
+        bitrate = stats.get("bitrate")
+        if bitrate and bitrate != "N/A":
+            parts.append(bitrate)
+
+        speed = stats.get("speed")
+        if speed and speed != "N/A":
+            parts.append(speed)
+
+        line_str = "  " + "  ".join(parts)
+        sys.stderr.write(f"\r{line_str}\033[K")
+        sys.stderr.flush()
+
+        stats.clear()
+
+    proc.wait()
+    # Clear progress line
+    sys.stderr.write("\r\033[K")
+    sys.stderr.flush()
+    if proc.returncode != 0:
+        stderr_output = proc.stderr.read() if proc.stderr else ""
+        raise RuntimeError(f"ffmpeg failed (exit {proc.returncode}): {stderr_output.strip()}")
+
+
 def extract_audio_from_video(video_path: Path) -> tuple[Path, Path | None]:
     """Extract audio from a video file using ffmpeg.
 
@@ -230,16 +324,13 @@ def extract_audio_from_video(video_path: Path) -> tuple[Path, Path | None]:
     codec = detect_audio_codec(video_path)
     ext = CODEC_EXTENSION_MAP.get(codec, ".opus")
     output_path = video_path.with_suffix(ext)
+    duration = get_media_duration(video_path)
     cmd = [
         "ffmpeg", "-i", str(video_path),
         "-vn", "-c:a", "copy",
         "-y", str(output_path),
     ]
-    result = subprocess.run(
-        cmd, stdout=subprocess.DEVNULL, text=True, check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("ffmpeg audio extraction failed")
+    run_ffmpeg(cmd, duration)
     return output_path, thumbnail
 
 
@@ -250,6 +341,10 @@ def handle_file(
     track_number: int = 0,
 ) -> None:
     """Process and transfer a local audio/video file to the music library."""
+    # Print filename for standalone imports (batch mode prints its own header)
+    if batch_meta is None and track_number == 0:
+        print(f"\n{path.name}")
+
     source = path
     thumbnail: Path | None = None
     video_id = extract_video_id_from_filename(path.stem)

@@ -10,11 +10,13 @@ import pytest
 
 from gm.files import (
     CODEC_EXTENSION_MAP,
+    _BAR_WIDTH,
     _MIN_THUMBNAIL_SIZE,
     embed_cover_art,
     fetch_youtube_thumbnail,
     find_audio_files,
     find_video_files,
+    get_media_duration,
     is_video_file,
     is_audio_file,
     build_scp_command,
@@ -23,6 +25,7 @@ from gm.files import (
     extract_audio_from_video,
     handle_file,
     handle_directory,
+    run_ffmpeg,
     scp_transfer,
     ssh_mkdir,
     SCP_HOST,
@@ -366,36 +369,178 @@ class TestEmbedCoverArt:
         embed_cover_art(audio, image)
 
 
+class TestGetMediaDuration:
+    """Test media duration detection via ffprobe."""
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_duration(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "123.456\n", "")
+        result = get_media_duration(tmp_path / "video.mp4")
+        assert result == 123.456
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_zero_on_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 1, "", "error")
+        result = get_media_duration(tmp_path / "video.mp4")
+        assert result == 0.0
+
+    @patch("gm.files.subprocess.run")
+    def test_returns_zero_on_invalid_output(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "N/A\n", "")
+        result = get_media_duration(tmp_path / "video.mp4")
+        assert result == 0.0
+
+
+class TestRunFfmpeg:
+    """Test ffmpeg progress bar runner."""
+
+    def _make_progress_output(self, *, out_time_us: str = "5000000",
+                              total_size: str = "3498000",
+                              bitrate: str = "135.8kb/s",
+                              speed: str = "74.7x") -> str:
+        """Build ffmpeg -progress style output."""
+        lines = [
+            f"out_time_us={out_time_us}",
+            f"total_size={total_size}",
+            f"bitrate={bitrate}",
+            f"speed={speed}",
+            "progress=continue",
+            f"out_time_us={out_time_us}",
+            f"total_size={total_size}",
+            f"bitrate={bitrate}",
+            f"speed={speed}",
+            "progress=end",
+        ]
+        return "\n".join(lines) + "\n"
+
+    @patch("gm.files.subprocess.Popen")
+    def test_successful_run(self, mock_popen: MagicMock) -> None:
+        import io
+        output = self._make_progress_output()
+        proc = MagicMock()
+        proc.stdout = io.StringIO(output)
+        proc.stderr = io.StringIO("")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        mock_popen.return_value = proc
+
+        # Should not raise
+        run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-vn", "-y", "out.opus"], duration=10.0)
+
+        # Verify progress flags appended
+        cmd = mock_popen.call_args[0][0]
+        assert "-progress" in cmd
+        assert "pipe:1" in cmd
+        assert "-nostats" in cmd
+
+    @patch("gm.files.subprocess.Popen")
+    def test_raises_on_failure(self, mock_popen: MagicMock) -> None:
+        import io
+        proc = MagicMock()
+        proc.stdout = io.StringIO("")
+        proc.stderr = io.StringIO("codec not found")
+        proc.returncode = 1
+        proc.wait.return_value = 1
+        mock_popen.return_value = proc
+
+        with pytest.raises(RuntimeError, match="ffmpeg failed"):
+            run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-y", "out.opus"])
+
+    @patch("gm.files.subprocess.Popen")
+    def test_zero_duration_shows_stats_only(self, mock_popen: MagicMock) -> None:
+        import io
+        output = self._make_progress_output()
+        proc = MagicMock()
+        proc.stdout = io.StringIO(output)
+        proc.stderr = io.StringIO("")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        mock_popen.return_value = proc
+
+        # duration=0 means no percentage bar
+        run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-y", "out.opus"], duration=0.0)
+        mock_popen.assert_called_once()
+
+    @patch("gm.files.subprocess.Popen")
+    def test_handles_lines_without_equals(self, mock_popen: MagicMock) -> None:
+        import io
+        output = "some garbage line\nout_time_us=5000000\nprogress=end\n"
+        proc = MagicMock()
+        proc.stdout = io.StringIO(output)
+        proc.stderr = io.StringIO("")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        mock_popen.return_value = proc
+
+        run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-y", "out.opus"], duration=10.0)
+
+    @patch("gm.files.subprocess.Popen")
+    def test_handles_invalid_out_time_us(self, mock_popen: MagicMock) -> None:
+        import io
+        lines = [
+            "out_time_us=not_a_number",
+            "total_size=3498000",
+            "progress=end",
+        ]
+        proc = MagicMock()
+        proc.stdout = io.StringIO("\n".join(lines) + "\n")
+        proc.stderr = io.StringIO("")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        mock_popen.return_value = proc
+
+        run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-y", "out.opus"], duration=10.0)
+
+    @patch("gm.files.subprocess.Popen")
+    def test_handles_invalid_total_size(self, mock_popen: MagicMock) -> None:
+        import io
+        lines = [
+            "out_time_us=5000000",
+            "total_size=not_a_number",
+            "progress=end",
+        ]
+        proc = MagicMock()
+        proc.stdout = io.StringIO("\n".join(lines) + "\n")
+        proc.stderr = io.StringIO("")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        mock_popen.return_value = proc
+
+        run_ffmpeg(["ffmpeg", "-i", "in.mp4", "-y", "out.opus"], duration=10.0)
+
+
 class TestExtractAudio:
     """Test audio extraction from video files."""
 
     @patch("gm.files.extract_thumbnail")
     @patch("gm.files.detect_audio_codec", return_value="opus")
-    @patch("gm.files.subprocess.run")
-    def test_extracts_audio_opus(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.files.run_ffmpeg")
+    @patch("gm.files.get_media_duration", return_value=120.0)
+    def test_extracts_audio_opus(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         thumb = tmp_path / "video.jpg"
         mock_thumb.return_value = thumb
-        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
         audio, thumbnail = extract_audio_from_video(video)
         assert audio.suffix == ".opus"
         assert thumbnail == thumb
         mock_thumb.assert_called_once_with(video)
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
+        mock_dur.assert_called_once_with(video)
+        mock_ffmpeg.assert_called_once()
+        cmd = mock_ffmpeg.call_args[0][0]
         assert "-c:a" in cmd
         assert "copy" in cmd
+        assert mock_ffmpeg.call_args[1] == {"duration": 120.0} or mock_ffmpeg.call_args[0][1] == 120.0
 
     @patch("gm.files.extract_thumbnail")
     @patch("gm.files.detect_audio_codec", return_value="aac")
-    @patch("gm.files.subprocess.run")
-    def test_extracts_audio_aac(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.files.run_ffmpeg")
+    @patch("gm.files.get_media_duration", return_value=60.0)
+    def test_extracts_audio_aac(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         mock_thumb.return_value = None
-        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
         audio, thumbnail = extract_audio_from_video(video)
         assert audio.suffix == ".m4a"
@@ -403,24 +548,24 @@ class TestExtractAudio:
 
     @patch("gm.files.extract_thumbnail")
     @patch("gm.files.detect_audio_codec", return_value="unknown_codec")
-    @patch("gm.files.subprocess.run")
-    def test_falls_back_to_opus_for_unknown_codec(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.files.run_ffmpeg")
+    @patch("gm.files.get_media_duration", return_value=0.0)
+    def test_falls_back_to_opus_for_unknown_codec(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         mock_thumb.return_value = None
-        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
         audio, thumbnail = extract_audio_from_video(video)
         assert audio.suffix == ".opus"
 
     @patch("gm.files.extract_thumbnail", return_value=None)
     @patch("gm.files.detect_audio_codec", return_value="opus")
-    @patch("gm.files.subprocess.run")
-    def test_raises_on_failure(self, mock_run: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.files.run_ffmpeg", side_effect=RuntimeError("ffmpeg failed (exit 1): codec error"))
+    @patch("gm.files.get_media_duration", return_value=0.0)
+    def test_raises_on_failure(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
-        mock_run.return_value = subprocess.CompletedProcess([], 1, "", "codec error")
-        with pytest.raises(RuntimeError, match="ffmpeg audio extraction failed"):
+        with pytest.raises(RuntimeError, match="ffmpeg failed"):
             extract_audio_from_video(video)
 
 
@@ -472,6 +617,7 @@ class TestHandleFile:
         assert record.artist == "Artist"
 
         captured = capsys.readouterr()
+        assert "song.mp3" in captured.out  # filename printed for standalone import
         assert "Checking for duplicates..." in captured.out
         assert "Writing metadata..." in captured.out
         assert "Transferring..." in captured.out
@@ -713,6 +859,46 @@ class TestHandleFile:
 
         mock_title.assert_called_once_with(mock_read.return_value, batch, 3)
         mock_scp.assert_called_once()
+
+    @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    @patch("gm.files.find_by_hash", return_value=[])
+    @patch("gm.files.compute_file_hash", return_value="fakehash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_title_only")
+    @patch("gm.files.read_metadata")
+    def test_batch_mode_does_not_print_filename(
+        self,
+        mock_read: MagicMock,
+        mock_title: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "song.mp3"
+        f.write_bytes(b"\x00")
+
+        batch = AudioMetadata(artist="Artist", album="Album", genre="Rock")
+        mock_read.return_value = AudioMetadata(title="Song")
+        mock_title.return_value = AudioMetadata(artist="Artist", album="Album", title="Song")
+
+        handle_file(f, batch_meta=batch, track_number=3)
+
+        captured = capsys.readouterr()
+        # In batch mode, handle_file should NOT print the filename
+        # (handle_directory prints it instead)
+        lines = captured.out.split("\n")
+        assert not any(line.strip() == "song.mp3" for line in lines)
 
     @patch("gm.files.record_import")
     @patch("gm.files.check_destination_exists", return_value=True)
