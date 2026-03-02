@@ -350,20 +350,61 @@ def handle_file(
     if batch_meta is None and track_number == 0:
         print(f"\n{E_MUSIC}{bold_cyan(path.name)}")
 
-    source = path
-    thumbnail: Path | None = None
     video_id = extract_video_id_from_filename(path.stem)
+    is_video = is_video_file(path)
 
-    if is_video_file(path):
-        print(f"{E_SCISSORS}Extracting audio from video: {cyan(path.name)}")
-        source, thumbnail = extract_audio_from_video(path)
-    elif not is_audio_file(path):
+    # Check file type early — return before any dup checks for unsupported files
+    if not is_video and not is_audio_file(path):
         print(f"{E_SKIP}{yellow(f'Skipping unsupported file: {path.name}')}")
         return
+
+    # Early duplicate checks (before expensive extraction/metadata prompts)
+    print(f"{E_SEARCH}Checking for duplicates...")
+    early_dup_handled = False
+    existing = ""
+    file_hash = ""
+
+    if video_id:
+        vid_hits = find_by_video_id(video_id)
+        if vid_hits:
+            hit_dest = vid_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
+
+    # Hash check early only for audio files (video files need extraction first)
+    if not existing and not is_video:
+        file_hash = compute_file_hash(path)
+        log_hits = find_by_hash(file_hash)
+        if log_hits:
+            hit_dest = log_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
+
+    if existing:
+        action = prompt_duplicate_action(existing)
+        if action == "skip":
+            print(f"{E_SKIP}{yellow('Skipped.')}")
+            return
+        early_dup_handled = True
+
+    # Extract audio from video if needed
+    source = path
+    thumbnail: Path | None = None
+    if is_video:
+        print(f"{E_SCISSORS}Extracting audio from video: {cyan(path.name)}")
+        source, thumbnail = extract_audio_from_video(path)
 
     # If no embedded thumbnail, try downloading from YouTube
     if not thumbnail and video_id:
         thumbnail = fetch_youtube_thumbnail(video_id, path.with_suffix(".jpg"))
+
+    # Compute file hash if not yet computed (video files)
+    if not file_hash:
+        file_hash = compute_file_hash(source)
 
     defaults = read_metadata(source)
     if not defaults.genre and defaults.artist:
@@ -376,41 +417,30 @@ def handle_file(
     dest = build_destination_path(meta, extension, video_id=video_id)
     dest_dir = str(PurePosixPath(dest).parent)
 
-    # Check for duplicates: log (video ID + hash), then filesystem
-    print(f"{E_SEARCH}Checking for duplicates...")
-    file_hash = compute_file_hash(source)
-    existing = ""
+    # Late duplicate checks (only if not already handled early)
+    if not early_dup_handled:
+        # Hash check for video files (couldn't check early)
+        if is_video:
+            log_hits = find_by_hash(file_hash)
+            if log_hits:
+                hit_dest = log_hits[0].destination
+                if hit_dest and not check_destination_exists(hit_dest):
+                    delete_import(hit_dest)
+                else:
+                    existing = hit_dest
 
-    if video_id:
-        vid_hits = find_by_video_id(video_id)
-        if vid_hits:
-            hit_dest = vid_hits[0].destination
-            if hit_dest and not check_destination_exists(hit_dest):
-                delete_import(hit_dest)
-            else:
-                existing = hit_dest
+        if not existing and check_destination_exists(dest):
+            existing = dest
 
-    if not existing:
-        log_hits = find_by_hash(file_hash)
-        if log_hits:
-            hit_dest = log_hits[0].destination
-            if hit_dest and not check_destination_exists(hit_dest):
-                delete_import(hit_dest)
-            else:
-                existing = hit_dest
-
-    if not existing and check_destination_exists(dest):
-        existing = dest
-
-    if existing:
-        action = prompt_duplicate_action(existing)
-        if action == "skip":
-            print(f"{E_SKIP}{yellow('Skipped.')}")
-            return
-        if action == "rename":
-            meta = prompt_metadata(meta)
-            dest = build_destination_path(meta, extension, video_id=video_id)
-            dest_dir = str(PurePosixPath(dest).parent)
+        if existing:
+            action = prompt_duplicate_action(existing)
+            if action == "skip":
+                print(f"{E_SKIP}{yellow('Skipped.')}")
+                return
+            if action == "rename":
+                meta = prompt_metadata(meta)
+                dest = build_destination_path(meta, extension, video_id=video_id)
+                dest_dir = str(PurePosixPath(dest).parent)
 
     print(f"{E_WRITE}Writing metadata...")
     write_metadata(source, meta)

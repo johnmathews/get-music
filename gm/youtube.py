@@ -8,7 +8,7 @@ import uuid
 from pathlib import PurePosixPath
 
 from gm.ui import (
-    E_DONE, E_LINK, E_SKIP,
+    E_DONE, E_LINK, E_SEARCH, E_SKIP,
     bold_cyan, bold_green, cyan, yellow,
 )
 from gm.metadata import (
@@ -20,7 +20,6 @@ from gm.metadata import (
     normalize_date,
     prompt_duplicate_action,
     prompt_metadata,
-    sanitize_filename,
     write_metadata_ssh,
     MUSIC_ROOT,
 )
@@ -104,6 +103,29 @@ def handle_youtube(url: str) -> None:
     """Download audio from YouTube URL via SSH + yt-dlp on LXC."""
     print(f"{E_LINK}{bold_cyan('Downloading from YouTube:')} {url}")
 
+    video_id = extract_video_id(url)
+
+    # Early duplicate check: video_id in log + filesystem (before download)
+    early_dup_handled = False
+    if video_id:
+        print(f"{E_SEARCH}Checking for duplicates...")
+        existing = ""
+        log_hits = find_by_video_id(video_id)
+        if log_hits:
+            hit_dest = log_hits[0].destination
+            if hit_dest and not check_destination_exists(hit_dest):
+                delete_import(hit_dest)
+            else:
+                existing = hit_dest
+        if not existing:
+            existing = check_video_id_exists(MUSIC_ROOT, video_id)
+        if existing:
+            action = prompt_duplicate_action(existing)
+            if action == "skip":
+                print(f"{E_SKIP}{yellow('Skipped.')}")
+                return
+            early_dup_handled = True
+
     temp_dir = _make_temp_dir()
 
     # Create temp directory and download
@@ -140,29 +162,13 @@ def handle_youtube(url: str) -> None:
 
     # Prompt user for metadata
     meta = prompt_metadata(defaults)
-    video_id = extract_video_id(url)
     extension = PurePosixPath(audio_file).suffix
     dest = build_destination_path(meta, extension, video_id=video_id)
     dest_dir = str(PurePosixPath(dest).parent)
-    artist_dir = f"{MUSIC_ROOT}/{sanitize_filename(meta.artist)}"
 
-    # Check for duplicates: local log first, then filesystem
-    existing = ""
-    if video_id:
-        log_hits = find_by_video_id(video_id)
-        if log_hits:
-            hit_dest = log_hits[0].destination
-            if hit_dest and not check_destination_exists(hit_dest):
-                delete_import(hit_dest)
-            else:
-                existing = hit_dest
-        if not existing:
-            existing = check_video_id_exists(artist_dir, video_id)
-    if not existing and check_destination_exists(dest):
-        existing = dest
-
-    if existing:
-        action = prompt_duplicate_action(existing)
+    # Late duplicate check: destination path only (if not already handled)
+    if not early_dup_handled and check_destination_exists(dest):
+        action = prompt_duplicate_action(dest)
         if action == "skip":
             ssh_run(f"rm -rf {temp_dir}")
             print(f"{E_SKIP}{yellow('Skipped.')}")
@@ -171,7 +177,6 @@ def handle_youtube(url: str) -> None:
             meta = prompt_metadata(meta)
             dest = build_destination_path(meta, extension, video_id=video_id)
             dest_dir = str(PurePosixPath(dest).parent)
-            artist_dir = f"{MUSIC_ROOT}/{sanitize_filename(meta.artist)}"
 
     # Move file to final destination
     ssh_run(f"mkdir -p {quote_path(dest_dir)}", check=True)

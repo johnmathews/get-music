@@ -1158,6 +1158,106 @@ class TestHandleFile:
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")
+    @patch("gm.files.check_destination_exists", return_value=True)
+    @patch("gm.files.find_by_hash")
+    @patch("gm.files.compute_file_hash", return_value="vidhash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_duplicate_action", return_value="skip")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.extract_audio_from_video")
+    def test_video_file_late_hash_duplicate_skip(
+        self,
+        mock_extract: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_dup_action: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Video file: hash can only be checked late (after extraction), user skips."""
+        from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "video.mp4"
+        f.write_bytes(b"\x00")
+        extracted = tmp_path / "video.opus"
+        extracted.write_bytes(b"\x00")
+
+        mock_extract.return_value = (extracted, None)
+        mock_find_hash.return_value = [ImportRecord(destination="/mnt/nfs/music/Artist/Album/Video.opus")]
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+
+        handle_file(f)
+
+        # Hash checked late for video files (after extraction)
+        mock_extract.assert_called_once_with(f)
+        mock_dup_action.assert_called_once_with("/mnt/nfs/music/Artist/Album/Video.opus")
+        mock_scp.assert_not_called()
+        mock_record.assert_not_called()
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
+    @patch("gm.files.find_by_hash")
+    @patch("gm.files.compute_file_hash", return_value="vidhash")
+    @patch("gm.files.scp_transfer")
+    @patch("gm.files.ssh_mkdir")
+    @patch("gm.files.prompt_metadata")
+    @patch("gm.files.read_metadata")
+    @patch("gm.files.extract_audio_from_video")
+    @patch("gm.files.delete_import")
+    @patch("gm.files.check_destination_exists", return_value=False)
+    def test_video_file_stale_late_hash_continues(
+        self,
+        mock_check_dest: MagicMock,
+        mock_delete: MagicMock,
+        mock_extract: MagicMock,
+        mock_read: MagicMock,
+        mock_prompt: MagicMock,
+        mock_mkdir: MagicMock,
+        mock_scp: MagicMock,
+        mock_hash: MagicMock,
+        mock_find_hash: MagicMock,
+        mock_record: MagicMock,
+        mock_fetch_yt: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Video file: late hash check finds stale record — prune and continue."""
+        from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
+
+        f = tmp_path / "video.mp4"
+        f.write_bytes(b"\x00")
+        extracted = tmp_path / "video.opus"
+        extracted.write_bytes(b"\x00")
+
+        stale_dest = "/mnt/nfs/music/Artist/Album/Video.opus"
+        mock_extract.return_value = (extracted, None)
+        mock_find_hash.return_value = [ImportRecord(destination=stale_dest)]
+        # check_destination_exists returns False — stale record
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Album", title="Video")
+
+        handle_file(f)
+
+        mock_delete.assert_called_once_with(stale_dest)
+        mock_scp.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
+    @patch("gm.files.record_import")
     @patch("gm.files.find_by_hash", return_value=[])
     @patch("gm.files.compute_file_hash", return_value="fakehash")
     @patch("gm.files.scp_transfer")

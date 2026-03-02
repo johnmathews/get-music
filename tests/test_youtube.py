@@ -299,29 +299,18 @@ class TestHandleYoutube:
         mock_write_meta: MagicMock,
         mock_find_genre: MagicMock,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
 
-        mock_ssh.side_effect = [
-            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
-            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Channel", "title": "Song", "artist": "Real Artist",
-            }), ""),  # cat info.json
-            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
-            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
-            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup on skip)
-        ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Real Artist", album="YouTube", title="Song"
-        )
         mock_find_vid.return_value = [
             ImportRecord(destination="/mnt/nfs/music/Real-Artist/YouTube/Song-[abc123].opus"),
         ]
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
+        # Early dup check skips before download — no SSH calls, no metadata prompt
         mock_dup_action.assert_called_once()
+        mock_ssh.assert_not_called()
+        mock_prompt.assert_not_called()
         mock_record.assert_not_called()
 
     @patch("gm.youtube.record_import")
@@ -398,6 +387,93 @@ class TestHandleYoutube:
         mv_thumb_cmd = mock_ssh.call_args_list[7][0][0]
         assert "cover.jpg" in mv_thumb_cmd
         assert f"{TEMP_DIR}/Song.jpg" in mv_thumb_cmd
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=True)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id")
+    @patch("gm.youtube.prompt_duplicate_action", return_value="overwrite")
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_early_dup_overwrite_proceeds(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_dup_action: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+    ) -> None:
+        """Early video_id dup found, user overwrites — download proceeds."""
+        from gm.history import ImportRecord
+
+        mock_find_vid.return_value = [
+            ImportRecord(destination="/mnt/nfs/music/Artist/YouTube/Song-[abc123].opus"),
+        ]
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="YouTube", title="Song"
+        )
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_dup_action.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=True)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.prompt_duplicate_action", return_value="skip")
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_late_dest_skip(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_dup_action: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_find_genre: MagicMock,
+    ) -> None:
+        """No early dup, but dest exists after download — user skips."""
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup on skip)
+        ]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="YouTube", title="Song"
+        )
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_dup_action.assert_called_once()
+        mock_record.assert_not_called()
 
     @patch("gm.youtube.record_import")
     @patch("gm.youtube.check_destination_exists", return_value=True)
