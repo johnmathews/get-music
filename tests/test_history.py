@@ -102,6 +102,12 @@ class TestFindGenreByArtist:
         ))
         assert find_genre_by_artist("Artist") == "Jazz"
 
+    def test_skips_generic_music_genre(self) -> None:
+        record_import(ImportRecord(
+            source="s1", artist="Artist", title="Song", genre="Music",
+        ))
+        assert find_genre_by_artist("Artist") == ""
+
     def test_returns_empty_for_unknown_artist(self) -> None:
         assert find_genre_by_artist("Unknown") == ""
 

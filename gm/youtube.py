@@ -76,6 +76,8 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     title = data.get("title", "") or ""
     album = data.get("album", "") or "YouTube"
     genre = data.get("genre", "") or ""
+    if genre.lower() == "music":
+        genre = ""
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
 

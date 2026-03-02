@@ -95,6 +95,11 @@ class TestParseYtdlpMetadata:
         assert meta.date == "2023-04-15"
         assert meta.description == "Official music video"
 
+    def test_filters_generic_music_genre(self) -> None:
+        data = {"uploader": "Artist", "title": "Song", "genre": "Music"}
+        meta = parse_ytdlp_metadata(json.dumps(data))
+        assert meta.genre == ""
+
     def test_falls_back_to_uploader(self) -> None:
         data = {
             "uploader": "Channel Name",

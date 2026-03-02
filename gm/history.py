@@ -193,7 +193,12 @@ def find_genre_by_artist(artist: str) -> str:
             "ORDER BY id DESC LIMIT 1",
             (artist,),
         ).fetchone()
-        return row[0] if row else ""
+        if not row:
+            return ""
+        genre = row[0]
+        if genre.lower() == "music":
+            return ""
+        return genre
     finally:
         conn.close()
 
