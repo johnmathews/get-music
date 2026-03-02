@@ -440,6 +440,28 @@ class TestPromptMetadata:
         assert result.description == "A live recording from 1969"
         assert result.track_number == "3"
 
+    @patch("builtins.input", side_effect=["", "", "", "-", "-"])
+    def test_hyphen_clears_default(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(
+            artist="Artist", album="Album", title="Song",
+            genre="Rock", date="2024",
+        )
+        result = prompt_metadata(defaults)
+        assert result.artist == "Artist"
+        assert result.genre == ""
+        assert result.date == ""
+
+    @patch("builtins.input", side_effect=["", "", "", " ", "  "])
+    def test_space_clears_default(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(
+            artist="Artist", album="Album", title="Song",
+            genre="Rock", date="2024",
+        )
+        result = prompt_metadata(defaults)
+        assert result.artist == "Artist"
+        assert result.genre == ""
+        assert result.date == ""
+
 
 class TestCheckDestinationExists:
     """Test SSH-based destination file existence check."""

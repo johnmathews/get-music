@@ -339,10 +339,16 @@ def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
 
 
 def _prompt_field(label: str, default: str) -> str:
-    """Prompt for a single metadata field with a default value."""
+    """Prompt for a single metadata field with a default value.
+
+    Type '-' or a blank space to clear a default value (set it to empty string).
+    """
     if default:
-        value = input(f"  {label} [{default}]: ")
-        return value.strip() if value.strip() else default
+        raw = input(f"  {label} [{default}]: ")
+        value = raw.strip()
+        if value == "-" or (raw and not value):
+            return ""
+        return value if value else default
     return input(f"  {label}: ").strip()
 
 
