@@ -44,9 +44,15 @@ gm ~/Downloads/video.mp4
 ```
 
 Audio files are read for metadata (via mutagen) and transferred via `scp`. Video files have their audio extracted first
-using `ffmpeg`, then transferred. If the video has an embedded thumbnail (attached picture stream), it's extracted and
-used as cover art — both embedded in the audio file and saved as `cover.jpg`. For files with a YouTube video ID in the
-filename (e.g., `Song-[dQw4w9WgXcQ].mp4`), the thumbnail is downloaded directly from YouTube if not embedded.
+using `ffmpeg` (stream copy, no re-encoding), then transferred. If the video has an embedded thumbnail (attached picture
+stream), it's extracted and used as cover art — both embedded in the audio file and saved as `cover.jpg`. For files with
+a YouTube video ID in the filename (e.g., `Song-[dQw4w9WgXcQ].mp4`), the thumbnail is downloaded directly from YouTube
+if not embedded.
+
+All metadata from the source file is preserved through extraction. Rich metadata fields like description and comment
+(common in YouTube-sourced videos) are carried through unchanged into the final audio file — they are read from the
+source, passed through the processing pipeline, and written back. The interactive prompt only asks for core cataloging
+fields (artist, album, title, genre, date), but other embedded metadata is not stripped.
 
 ### Process a directory
 
