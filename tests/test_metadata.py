@@ -459,6 +459,44 @@ class TestPromptMetadata:
         assert result.date == ""
 
 
+@patch("gm.metadata.list_existing_artists", return_value=[])
+class TestPromptMetadataSingle:
+    """Test prompt_metadata in single mode (album = title)."""
+
+    @patch("builtins.input", side_effect=["", "", ""])
+    def test_single_sets_album_to_title(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(artist="Artist", title="My Song", date="2024")
+        result = prompt_metadata(defaults, single=True)
+        assert result.artist == "Artist"
+        assert result.album == "My Song"
+        assert result.title == "My Song"
+        assert result.date == "2024"
+
+    @patch("builtins.input", side_effect=["", "Custom Title", ""])
+    def test_single_album_follows_overridden_title(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(artist="Artist", title="Default Title")
+        result = prompt_metadata(defaults, single=True)
+        assert result.album == "Custom Title"
+        assert result.title == "Custom Title"
+
+    @patch("builtins.input", side_effect=["", "", ""])
+    def test_single_skips_album_prompt(self, mock_input: object, *_mocks: object) -> None:
+        """Single mode prompts 3 fields (artist, title, date), not 4."""
+        defaults = AudioMetadata(artist="Artist", title="Song", date="2024")
+        prompt_metadata(defaults, single=True)
+        assert mock_input.call_count == 3
+
+    @patch("builtins.input", side_effect=["", "", ""])
+    def test_single_preserves_description(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(
+            artist="Artist", title="Song",
+            description="Live recording", track_number="1",
+        )
+        result = prompt_metadata(defaults, single=True)
+        assert result.description == "Live recording"
+        assert result.track_number == "1"
+
+
 class TestCheckDestinationExists:
     """Test SSH-based destination file existence check."""
 

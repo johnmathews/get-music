@@ -326,17 +326,27 @@ def _strip_artist_prefix(title: str, artist: str) -> str:
     return title
 
 
-def prompt_metadata(defaults: AudioMetadata) -> AudioMetadata:
-    """Prompt the user to confirm or override metadata fields."""
+def prompt_metadata(
+    defaults: AudioMetadata, *, single: bool = False,
+) -> AudioMetadata:
+    """Prompt the user to confirm or override metadata fields.
+
+    When *single* is True (YouTube tracks), the album prompt is skipped and
+    album is automatically set equal to the title.
+    """
     print(f"\n{bold('Metadata')} {dim('(press Enter to accept default):')}")
 
     artist = _prompt_field("Artist", defaults.artist)
     artist = _apply_suggestion(artist, list_existing_artists())
 
-    album = _prompt_field("Album", defaults.album)
-    album = _apply_suggestion(album, list_existing_albums(artist))
+    if single:
+        title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
+        album = title
+    else:
+        album = _prompt_field("Album", defaults.album)
+        album = _apply_suggestion(album, list_existing_albums(artist))
+        title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
 
-    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
     date = _prompt_field("Date", defaults.date)
 
     return AudioMetadata(

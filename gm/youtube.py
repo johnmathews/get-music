@@ -69,7 +69,7 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
-        return AudioMetadata(album="YouTube")
+        return AudioMetadata()
 
     artist = data.get("artist", "") or data.get("uploader", "") or ""
     # Strip " - Topic" suffix from auto-generated YouTube Music channels
@@ -77,7 +77,6 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
         artist = artist[: -len(" - Topic")]
 
     title = data.get("title", "") or ""
-    album = data.get("album", "") or "YouTube"
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
 
@@ -87,7 +86,6 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
 
     return AudioMetadata(
         artist=humanize_name(artist),
-        album=humanize_name(album),
         title=humanize_name(title),
         date=date,
         description=description,
@@ -152,8 +150,8 @@ def handle_youtube(url: str) -> None:
     )
     thumb_file = thumb_result.stdout.strip()
 
-    # Prompt user for metadata
-    meta = prompt_metadata(defaults)
+    # Prompt user for metadata (YouTube tracks are singles: album = title)
+    meta = prompt_metadata(defaults, single=True)
     extension = PurePosixPath(audio_file).suffix
     dest = build_destination_path(meta, extension, video_id=video_id)
     dest_dir = str(PurePosixPath(dest).parent)
@@ -166,7 +164,7 @@ def handle_youtube(url: str) -> None:
             print(f"{E_SKIP}{yellow('Skipped.')}")
             return
         if action == "rename":
-            meta = prompt_metadata(meta)
+            meta = prompt_metadata(meta, single=True)
             dest = build_destination_path(meta, extension, video_id=video_id)
             dest_dir = str(PurePosixPath(dest).parent)
 

@@ -26,7 +26,8 @@ gm https://youtube.com/shorts/abc123
 ```
 
 This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and
-prompts you to confirm/override. The file is placed at `/mnt/nfs/music/Artist/Album/Title-[video_id].opus`.
+prompts you to confirm/override. YouTube tracks are treated as singles — the album is automatically set to the track
+title. The file is placed at `/mnt/nfs/music/Artist/Title/Title-[video_id].opus`.
 
 YouTube downloads include:
 
@@ -134,7 +135,6 @@ For every file processed, you'll be shown the detected metadata and can accept d
 ```
 Metadata (press Enter to accept default):
   Artist [Channel Name]: Actual Artist
-  Album [YouTube]: Album Name
   Title [Video Title]:
   Date []:
 ```
@@ -142,7 +142,7 @@ Metadata (press Enter to accept default):
 - Press Enter to accept the value in brackets
 - Type a new value to override
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
-- Album defaults to "YouTube" when not detected from a YouTube download
+- YouTube tracks are singles — the album is automatically set equal to the title (no album prompt)
 - When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source won't persist
 - Title suggestions automatically strip the artist name prefix — if the artist is "Joe Bloggs" and the detected title is "Joe Bloggs - My Song", the suggestion shows just "My Song"
 
@@ -255,7 +255,7 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 │   ├── Album-Name/
 │   │   ├── Song-Title.flac
 │   │   └── cover.jpg
-│   └── YouTube/
+│   └── Another-Song/
 │       └── Another-Song-[dQw4w9WgXcQ].opus
 ```
 
