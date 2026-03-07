@@ -141,6 +141,7 @@ Metadata (press Enter to accept default):
 
 - Press Enter to accept the value in brackets
 - Type a new value to override
+- Type `<` to go back to the previous field
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
 - YouTube tracks are singles — the album is automatically set equal to the title (no album prompt)
 - When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source won't persist
