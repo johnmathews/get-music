@@ -360,12 +360,18 @@ def _strip_artist_prefix(title: str, artist: str) -> str:
 
     Matches the artist as a prefix using alphanumeric-only comparison so
     that punctuation differences (e.g. "Ex:Re" vs "Ex -Re") are ignored.
+    Requires a word boundary after the match — won't strip "Ben Howard"
+    from "Ben Howard's ..." (apostrophe continues the word).
     Strips leading separators/whitespace from the remainder.
     """
     if not artist or not title:
         return title
     end = _normalized_prefix_end(title, artist)
     if end < 0 or end >= len(title):
+        return title
+    # Word boundary check: next char must not continue the word
+    next_char = title[end]
+    if next_char.isalnum() or next_char == "'":
         return title
     remainder = _LEADING_PUNCTUATION.sub("", title[end:])
     return remainder if remainder else title

@@ -984,6 +984,15 @@ class TestStripArtistPrefix:
         # When title is just the artist, return unchanged
         assert _strip_artist_prefix("Joe Bloggs", "Joe Bloggs") == "Joe Bloggs"
 
+    def test_possessive_not_stripped(self) -> None:
+        # "Ben Howard's ..." should NOT be stripped — apostrophe continues the word
+        title = "Ben Howard's breathtaking performance of End of the Affair"
+        assert _strip_artist_prefix(title, "Ben Howard") == title
+
+    def test_word_boundary_required(self) -> None:
+        # "BenHowardLive" should NOT be stripped — no word boundary
+        assert _strip_artist_prefix("BenHowardLive Session", "BenHoward") == "BenHowardLive Session"
+
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])
