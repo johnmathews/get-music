@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 
 import mutagen
 
-from gm.ui import E_WARN, bold, bold_cyan, bold_yellow, cyan, dim
+from gm.ui import E_WARN, E_ERROR, bold, bold_cyan, bold_yellow, cyan, dim, yellow
 from gm.ssh import ssh_run, quote_path
 
 
@@ -30,7 +30,7 @@ class AudioMetadata:
     track_number: str = ""
 
 
-_UNSAFE_CHARS = re.compile(r"""[/\\:\x00 '"` \$\?\*<>\|;&\(\)\n\t\r]""")
+_UNSAFE_CHARS = re.compile(r"""[/\\:\x00'"`\$\?\*<>\|;&\(\)\n\t\r]""")
 
 
 def humanize_name(name: str) -> str:
@@ -44,14 +44,18 @@ def humanize_name(name: str) -> str:
 def sanitize_filename(name: str) -> str:
     """Sanitize a string for use as a filename or directory name.
 
-    Replaces spaces and shell/filesystem-unsafe characters with hyphens.
+    Replaces shell/filesystem-unsafe characters with hyphens. Spaces are
+    preserved to match Lidarr's directory naming convention.
     """
     name = name.strip()
     name = _UNSAFE_CHARS.sub("-", name)
     # Collapse multiple consecutive hyphens
     while "--" in name:
         name = name.replace("--", "-")
-    name = name.strip("-")
+    # Collapse multiple consecutive spaces
+    while "  " in name:
+        name = name.replace("  ", " ")
+    name = name.strip("- ")
     if not name or all(c == "." for c in name):
         return "_"
     return name
@@ -128,10 +132,11 @@ def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
     if not match:
         return None
     artist_raw, title_raw, _video_id = match.groups()
+    title = title_raw.replace("_", " ").strip()
     return {
         "artist": artist_raw.replace("_", " ").strip(),
-        "title": title_raw.replace("_", " ").strip(),
-        "album": "YouTube",
+        "title": title,
+        "album": title,
     }
 
 
@@ -241,6 +246,9 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
     result = ssh_run(f"{ffmpeg_cmd} && mv {quote_path(tmp)} {quote_path(dest)}")
     if result.returncode != 0:
         ssh_run(f"rm -f {quote_path(tmp)}")
+        print(f"{E_ERROR}{yellow('Metadata rewrite failed — tags from yt-dlp may be stale')}")
+        if result.stderr.strip():
+            print(f"  {dim(result.stderr.strip().splitlines()[-1])}")
 
 
 def list_existing_artists() -> list[str]:
@@ -280,6 +288,12 @@ def suggest_match(user_input: str, existing: list[str]) -> str:
     if sanitized.lower() in sanitized_map:
         return sanitized_map[sanitized.lower()]
 
+    # Normalized match (spaces <-> hyphens)
+    normalized = user_input.replace("-", " ").lower()
+    for e in existing:
+        if e.replace("-", " ").lower() == normalized:
+            return e
+
     # Fuzzy match
     matches = difflib.get_close_matches(
         user_input.lower(),
@@ -312,17 +326,24 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
 
 
 def _strip_artist_prefix(title: str, artist: str) -> str:
-    """Strip the artist name from the beginning of a title suggestion.
+    """Strip the artist name from the beginning of a title.
 
-    Handles common separators: " - ", " – " (en-dash), " — " (em-dash).
-    Comparison is case-insensitive.
+    Tries explicit separators first (" - ", " – ", " — ", ": ", " "),
+    then falls back to a bare prefix match.  Comparison is case-insensitive.
     """
     if not artist or not title:
         return title
-    for sep in [" - ", " \u2013 ", " \u2014 "]:
+    for sep in [" - ", " \u2013 ", " \u2014 ", ": ", " "]:
         prefix = artist + sep
         if title.lower().startswith(prefix.lower()):
-            return title[len(prefix):]
+            remainder = title[len(prefix):].strip()
+            if remainder:
+                return remainder
+    # Bare prefix with no separator (e.g. "ArtistSong" — unlikely but safe)
+    if title.lower().startswith(artist.lower()) and len(title) > len(artist):
+        remainder = title[len(artist):].strip()
+        if remainder:
+            return remainder
     return title
 
 

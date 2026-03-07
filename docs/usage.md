@@ -67,7 +67,7 @@ You'll be prompted whether to search recursively and whether files share the sam
 ```
 Search recursively? [y/N]: n
 Found 12 file(s)
-Same album? [Y/n]: y
+Same album? [y/N]: y
 
 Shared metadata for all files (press Enter to leave empty):
   Artist: Led Zeppelin
@@ -78,13 +78,13 @@ Shared metadata for all files (press Enter to leave empty):
   Title [Black Dog]:
 ```
 
-When files share the same album (default), each file gets automatic track numbering and only prompts for the title.
+When files share the same album, each file gets automatic track numbering and only prompts for the title.
 Shared fields (artist, album, date) are set once for the whole batch.
 
 If files are from different artists or albums, answer "n" to get full metadata prompting for each file individually:
 
 ```
-Same album? [Y/n]: n
+Same album? [y/N]: n
 
 [1/5] song-a.mp3
   Artist []: Pink Floyd
@@ -152,7 +152,7 @@ Metadata (press Enter to accept default):
 
 1. **Embedded tags** — mutagen reads artist, album, title, date from the audio file
 2. **YouTube-style filenames** — files named `Artist_Name-Song_Title-[videoID]` (e.g., downloaded with yt-dlp) have
-   artist, title, and album ("YouTube") extracted from the filename pattern
+   artist, title, and album (defaults to the title) extracted from the filename pattern
 3. **Date from file** — when no date tag is found, the file's creation date (macOS birth time, or modification time on
    Linux) is used as the default
 
@@ -251,18 +251,18 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 
 ```
 /mnt/nfs/music/
-├── Artist-Name/
-│   ├── Album-Name/
+├── Artist Name/
+│   ├── Album Name/
 │   │   ├── Song-Title.flac
 │   │   └── cover.jpg
-│   └── Another-Song/
+│   └── Another Song/
 │       └── Another-Song-[dQw4w9WgXcQ].opus
 ```
 
-- Spaces are replaced with hyphens in all path components
+- Spaces are preserved in filenames and directory names (matching Lidarr's convention)
 - Unsafe characters are replaced with hyphens: `/`, `\`, `:`, null bytes, `'`, `"`, `` ` ``, `$`, `?`, `*`, `<`, `>`,
   `|`, `;`, `&`, `(`, `)`, newlines, tabs
-- Multiple consecutive hyphens are collapsed to one
+- Multiple consecutive hyphens are collapsed to one; multiple consecutive spaces are collapsed to one
 - YouTube downloads include the video ID in square brackets before the extension
 
 ## Import Log

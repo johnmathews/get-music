@@ -212,14 +212,14 @@ class TestHandleYoutube:
         assert "yt-dlp" in ytdlp_call_cmd
         assert "--embed-metadata" in ytdlp_call_cmd
 
-        # Verify file was moved with video ID in brackets, no spaces, native extension
+        # Verify file was moved with video ID in brackets, native extension
         mv_call_cmd = mock_ssh.call_args_list[6][0][0]
-        assert "/mnt/nfs/music/Real-Artist/Song/Song-[abc123].opus" in mv_call_cmd
+        assert "/mnt/nfs/music/Real Artist/Song/Song-[abc123].opus" in mv_call_cmd
 
         # Verify metadata was written back to the audio file
         mock_write_meta.assert_called_once()
         write_dest, write_meta = mock_write_meta.call_args[0]
-        assert "/mnt/nfs/music/Real-Artist/Song/Song-[abc123].opus" == write_dest
+        assert "/mnt/nfs/music/Real Artist/Song/Song-[abc123].opus" == write_dest
         assert write_meta.album == "Song"
 
         # Verify import was logged
@@ -298,7 +298,7 @@ class TestHandleYoutube:
         from gm.history import ImportRecord
 
         mock_find_vid.return_value = [
-            ImportRecord(destination="/mnt/nfs/music/Real-Artist/YouTube/Song-[abc123].opus"),
+            ImportRecord(destination="/mnt/nfs/music/Real-Artist/Song/Song-[abc123].opus"),
         ]
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")

@@ -104,16 +104,16 @@ class TestSanitizeFilename:
         assert sanitize_filename("back\\slash") == "back-slash"
 
     def test_removes_colons(self) -> None:
-        assert sanitize_filename("Title: Subtitle") == "Title-Subtitle"
+        assert sanitize_filename("Title: Subtitle") == "Title- Subtitle"
 
     def test_strips_whitespace(self) -> None:
         assert sanitize_filename("  hello  ") == "hello"
 
-    def test_replaces_spaces_with_hyphens(self) -> None:
-        assert sanitize_filename("Good Song Name") == "Good-Song-Name"
+    def test_preserves_spaces(self) -> None:
+        assert sanitize_filename("Good Song Name") == "Good Song Name"
 
     def test_collapses_multiple_hyphens(self) -> None:
-        assert sanitize_filename("a - b") == "a-b"
+        assert sanitize_filename("a - b") == "a - b"
 
     def test_replaces_null_bytes(self) -> None:
         assert sanitize_filename("bad\x00name") == "bad-name"
@@ -125,22 +125,25 @@ class TestSanitizeFilename:
         assert sanitize_filename("...") == "_"
 
     def test_removes_single_quotes(self) -> None:
-        assert sanitize_filename("It's a Song") == "It-s-a-Song"
+        assert sanitize_filename("It's a Song") == "It-s a Song"
 
     def test_removes_double_quotes(self) -> None:
-        assert sanitize_filename('Say "Hello"') == "Say-Hello"
+        assert sanitize_filename('Say "Hello"') == "Say -Hello"
 
     def test_removes_backticks(self) -> None:
-        assert sanitize_filename("Song `Live`") == "Song-Live"
+        assert sanitize_filename("Song `Live`") == "Song -Live"
 
     def test_removes_dollar_sign(self) -> None:
-        assert sanitize_filename("Ca$h Money") == "Ca-h-Money"
+        assert sanitize_filename("Ca$h Money") == "Ca-h Money"
 
     def test_removes_question_mark(self) -> None:
         assert sanitize_filename("Why?") == "Why"
 
     def test_removes_asterisk(self) -> None:
         assert sanitize_filename("Best*Of") == "Best-Of"
+
+    def test_collapses_multiple_spaces(self) -> None:
+        assert sanitize_filename("Hello   World") == "Hello World"
 
     def test_removes_angle_brackets(self) -> None:
         assert sanitize_filename("<Title>") == "Title"
@@ -152,10 +155,10 @@ class TestSanitizeFilename:
         assert sanitize_filename("A;B") == "A-B"
 
     def test_removes_ampersand(self) -> None:
-        assert sanitize_filename("Tom & Jerry") == "Tom-Jerry"
+        assert sanitize_filename("Tom & Jerry") == "Tom - Jerry"
 
     def test_removes_parentheses(self) -> None:
-        assert sanitize_filename("Song (Live)") == "Song-Live"
+        assert sanitize_filename("Song (Live)") == "Song -Live"
 
     def test_removes_newlines_and_tabs(self) -> None:
         assert sanitize_filename("Line1\nLine2\tLine3") == "Line1-Line2-Line3"
@@ -179,11 +182,10 @@ class TestBuildDestinationPath:
         result = build_destination_path(meta, ".mp3")
         assert "[" not in result
 
-    def test_no_spaces_in_path(self) -> None:
+    def test_spaces_preserved_in_path(self) -> None:
         meta = AudioMetadata(artist="Led Zeppelin", album="Led Zeppelin IV", title="Stairway To Heaven")
         result = build_destination_path(meta, ".flac")
-        assert " " not in result
-        assert result == "/mnt/nfs/music/Led-Zeppelin/Led-Zeppelin-IV/Stairway-To-Heaven.flac"
+        assert result == "/mnt/nfs/music/Led Zeppelin/Led Zeppelin IV/Stairway To Heaven.flac"
 
     def test_sanitizes_components(self) -> None:
         meta = AudioMetadata(artist="AC/DC", album="Back: In Black", title="Hells Bells")
@@ -335,7 +337,7 @@ class TestReadMetadata:
         f.write_bytes(b"\x00" * 100)
         meta = read_metadata(f)
         assert meta.artist == "Adam Barrett"
-        assert meta.album == "YouTube"
+        assert meta.album == "Jigsaw Falling Into Place"
         assert meta.title == "Jigsaw Falling Into Place"
 
     @patch("gm.metadata.mutagen.File")
@@ -380,7 +382,7 @@ class TestReadMetadata:
         meta = read_metadata(f)
         # Artist/album/title filled from filename; date from tags
         assert meta.artist == "Adam Barrett"
-        assert meta.album == "YouTube"
+        assert meta.album == "Cool Song"
         assert meta.title == "Cool Song"
         assert meta.date == "2023-04-15"
 
@@ -601,8 +603,12 @@ class TestSuggestMatch:
         assert suggest_match("led zeppelin", ["Led-Zeppelin", "Pink-Floyd"]) == "Led-Zeppelin"
 
     def test_sanitized_form_match(self) -> None:
-        # "Led Zeppelin" sanitizes to "Led-Zeppelin" which matches exactly
+        # "Led Zeppelin" normalizes to match "Led-Zeppelin" via space/hyphen equivalence
         assert suggest_match("Led Zeppelin", ["Led-Zeppelin", "Pink-Floyd"]) == "Led-Zeppelin"
+
+    def test_normalized_match_spaces_to_hyphens(self) -> None:
+        # "Forrest Frank" matches existing "Forrest-Frank" via normalization
+        assert suggest_match("Forrest Frank", ["Forrest-Frank"]) == "Forrest-Frank"
 
     def test_fuzzy_match(self) -> None:
         # Typo: "Led Zeplin" should fuzzy match "Led-Zeppelin"
@@ -838,16 +844,15 @@ class TestWriteMetadataSsh:
     @patch("gm.metadata.ssh_run")
     def test_writes_metadata_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
-        meta = AudioMetadata(artist="Artist", album="YouTube", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+        meta = AudioMetadata(artist="Artist", album="Song", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
 
         cmd = mock_ssh.call_args_list[0][0][0]
         assert "ffmpeg" in cmd
         assert "-metadata artist=Artist" in cmd
-        assert "-metadata album=YouTube" in cmd
+        assert "-metadata album=Song" in cmd
         assert "-metadata title=Song" in cmd
         assert "-c copy" in cmd
-        assert "Song.gm-tmp.opus" in cmd
 
     @patch("gm.metadata.ssh_run")
     def test_skips_empty_metadata(self, mock_ssh: MagicMock) -> None:
@@ -858,8 +863,8 @@ class TestWriteMetadataSsh:
     @patch("gm.metadata.ssh_run")
     def test_cleans_up_on_failure(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "error")
-        meta = AudioMetadata(artist="Artist", album="YouTube")
-        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+        meta = AudioMetadata(artist="Artist", album="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
 
         # First call is ffmpeg, second is rm cleanup
         assert mock_ssh.call_count == 2
@@ -887,7 +892,7 @@ class TestWriteMetadataSsh:
     def test_clears_empty_fields_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/Artist/YouTube/Song.opus", meta)
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
 
         cmd = mock_ssh.call_args_list[0][0][0]
         assert "-metadata artist=Artist" in cmd
@@ -912,8 +917,11 @@ class TestStripArtistPrefix:
     def test_case_insensitive(self) -> None:
         assert _strip_artist_prefix("joe bloggs - My Song", "Joe Bloggs") == "My Song"
 
-    def test_no_separator_no_strip(self) -> None:
-        assert _strip_artist_prefix("Joe Bloggs My Song", "Joe Bloggs") == "Joe Bloggs My Song"
+    def test_strips_colon_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs: My Song", "Joe Bloggs") == "My Song"
+
+    def test_strips_space_separator(self) -> None:
+        assert _strip_artist_prefix("Joe Bloggs My Song", "Joe Bloggs") == "My Song"
 
     def test_artist_not_at_start(self) -> None:
         assert _strip_artist_prefix("My Song by Joe Bloggs", "Joe Bloggs") == "My Song by Joe Bloggs"

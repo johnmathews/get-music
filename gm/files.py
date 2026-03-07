@@ -495,7 +495,7 @@ def handle_directory(path: Path) -> None:
     total = len(all_files)
     print(f"{E_FOLDER}Found {bold(str(total))} file(s)")
 
-    same_album = input("Same album? [Y/n]: ").strip().lower() != "n"
+    same_album = input("Same album? [y/N]: ").strip().lower() == "y"
     batch: AudioMetadata | None = None
     if same_album:
         batch = prompt_batch_metadata()

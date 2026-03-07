@@ -1018,8 +1018,8 @@ class TestHandleFile:
         f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
         f.write_bytes(b"\x00")
 
-        mock_read.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
-        mock_prompt.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_file(f)
 
@@ -1056,8 +1056,8 @@ class TestHandleFile:
         f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
         f.write_bytes(b"\x00")
 
-        mock_read.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
-        mock_prompt.return_value = AudioMetadata(artist="Artist", album="YouTube", title="Song")
+        mock_read.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_file(f)
 

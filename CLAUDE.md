@@ -23,7 +23,7 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 - YouTube tracks are singles — album is automatically set equal to the title (no album prompt)
 - Local files transferred to LXC via `scp`; YouTube files download directly to NFS mount
 - Intermediate files (extracted audio, thumbnails) cleaned up locally after transfer
-- No spaces in filenames — use hyphens (e.g., `Led-Zeppelin/Led-Zeppelin-IV/Stairway-To-Heaven.opus`)
+- Spaces allowed in directory names to match Lidarr (e.g., `Led Zeppelin/Led Zeppelin IV/Stairway-To-Heaven.opus`)
 - YouTube video ID in square brackets at end of filename: `Song-[dQw4w9WgXcQ].opus`
 - Directory input prompts whether to search recursively
 
