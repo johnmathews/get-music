@@ -96,7 +96,10 @@ def read_metadata(path: Path) -> AudioMetadata:
     # Fill gaps from YouTube-style filename (Artist_Name-Title-[videoID])
     yt = _parse_youtube_filename(path.stem)
     if yt:
-        if not meta.artist:
+        channel = yt.get("channel", "")
+        # Override artist if empty or if it matches the channel name
+        # (embedded tags from yt-dlp often set artist to the channel)
+        if not meta.artist or (channel and meta.artist == channel):
             meta.artist = yt["artist"]
         if not meta.album:
             meta.album = yt["album"]
@@ -122,19 +125,47 @@ def extract_video_id_from_filename(stem: str) -> str:
     return match.group(3) if match else ""
 
 
+_MAX_ARTIST_WORDS = 3
+
+
 def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
     """Parse artist and title from a YouTube-style filename.
 
     Detects filenames like 'Artist_Name-Song_Title-[videoID]' and returns
     extracted metadata, or None if the pattern doesn't match.
+
+    Also handles 3-part filenames 'Channel-Artist-Title-[videoID]' where
+    the title portion contains ' - ' (from _-_ in restricted filenames).
+    If the segment before the first ' - ' is short (≤3 words), it's
+    treated as the artist and the first group becomes a channel (discarded).
     """
     match = _YT_FILENAME_RE.match(stem)
     if not match:
         return None
-    artist_raw, title_raw, _video_id = match.groups()
-    title = title_raw.replace("_", " ").strip()
+    first_raw, rest_raw, _video_id = match.groups()
+    rest = rest_raw.replace("_", " ").strip()
+
+    # Check for channel-artist-title structure
+    if " - " in rest:
+        candidate_artist, _, candidate_title = rest.partition(" - ")
+        candidate_artist = candidate_artist.strip()
+        candidate_title = candidate_title.strip()
+        if (
+            candidate_artist
+            and candidate_title
+            and len(candidate_artist.split()) <= _MAX_ARTIST_WORDS
+        ):
+            return {
+                "artist": candidate_artist,
+                "title": candidate_title,
+                "album": candidate_title,
+                "channel": first_raw.replace("_", " ").strip(),
+            }
+
+    # Default 2-part: first segment is artist, rest is title
+    title = rest
     return {
-        "artist": artist_raw.replace("_", " ").strip(),
+        "artist": first_raw.replace("_", " ").strip(),
         "title": title,
         "album": title,
     }

@@ -361,6 +361,39 @@ class TestReadMetadata:
         assert meta.title == "Real Title"
         assert meta.date == "2020-03-15"
 
+    def test_youtube_3part_channel_artist_title(self, tmp_path: Path) -> None:
+        f = tmp_path / "BBC_Radio_6_Music-Ex_-Re_-_Romance_6_Music_Live_Room-[6pNhrlPUxfA].mp3"
+        f.write_bytes(b"\x00" * 100)
+        meta = read_metadata(f)
+        assert meta.artist == "Ex -Re"
+        assert meta.title == "Romance 6 Music Live Room"
+        assert meta.album == "Romance 6 Music Live Room"
+
+    def test_youtube_3part_not_applied_when_artist_too_long(self, tmp_path: Path) -> None:
+        # "Jigsaw Falling Into Place" is 4 words — too long for artist, stays 2-part
+        f = tmp_path / "Adam_Barrett-Jigsaw_Falling_Into_Place_-_Radiohead_cover-[c99GmhBt7GM].mp3"
+        f.write_bytes(b"\x00" * 100)
+        meta = read_metadata(f)
+        assert meta.artist == "Adam Barrett"
+        assert meta.title == "Jigsaw Falling Into Place - Radiohead cover"
+
+    @patch("gm.metadata.mutagen.File")
+    def test_youtube_3part_overrides_channel_artist_tag(self, mock_file: MagicMock, tmp_path: Path) -> None:
+        """When embedded artist matches the channel, override with filename artist."""
+        f = tmp_path / "Chelsea_Baker-Long_Beard_-_Someplace-[Wx1sZzslqC0].mp3"
+        f.write_bytes(b"\x00")
+
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            "artist": ["Chelsea Baker"],
+            "title": ["Long Beard - Someplace"],
+        }
+        mock_file.return_value = mock_audio
+
+        meta = read_metadata(f)
+        assert meta.artist == "Long Beard"
+        assert meta.title == "Long Beard - Someplace"  # tags take priority for title
+
     def test_non_youtube_filename_not_affected(self, tmp_path: Path) -> None:
         f = tmp_path / "normal-song.mp3"
         f.write_bytes(b"\x00" * 100)
