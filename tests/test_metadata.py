@@ -1089,3 +1089,73 @@ class TestTitleStrippingBatch:
         batch = AudioMetadata(artist="Joe Bloggs", album="Album")
         result = prompt_title_only(defaults, batch, track_number=1)
         assert result.title == "My Song"
+
+
+@patch("gm.metadata.list_existing_albums", return_value=[])
+@patch("gm.metadata.list_existing_artists", return_value=[])
+class TestGoBack:
+    """Test '<' input goes back to the previous field."""
+
+    @patch("builtins.input", side_effect=["Typo Artist", "<", "Good Artist", "", "", "2024"])
+    def test_back_from_title_to_artist(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(artist="Def Artist", title="Song")
+        result = prompt_metadata(defaults)
+        assert result.artist == "Good Artist"
+
+    @patch("builtins.input", side_effect=["Artist", "Title", "<", "Better Title", "", "2024"])
+    def test_back_from_album_to_title(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(artist="Artist", title="Song")
+        result = prompt_metadata(defaults)
+        assert result.title == "Better Title"
+        assert result.album == "Better Title"  # album defaults to title
+
+    @patch("builtins.input", side_effect=["Artist", "Title", "Album", "<", "New Album", "2024"])
+    def test_back_from_date_to_album(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(artist="Artist", title="Song")
+        result = prompt_metadata(defaults)
+        assert result.album == "New Album"
+
+    @patch("builtins.input", side_effect=["<", "Artist", "", "", "2024"])
+    def test_back_at_first_field_stays(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        """'<' at the first field just re-prompts the same field."""
+        defaults = AudioMetadata(artist="Def", title="Song")
+        result = prompt_metadata(defaults)
+        assert result.artist == "Artist"
+
+    @patch("builtins.input", side_effect=["Artist", "<", "Fixed", "", "2024"])
+    def test_back_from_title_single_mode(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        """In single mode (YouTube), back from title goes to artist."""
+        defaults = AudioMetadata(artist="Artist", title="Song")
+        result = prompt_metadata(defaults, single=True)
+        assert result.artist == "Fixed"
+        assert result.album == result.title  # single mode sets album=title
+
+
+@patch("gm.metadata.list_existing_albums", return_value=[])
+@patch("gm.metadata.list_existing_artists", return_value=[])
+class TestGoBackBatch:
+    """Test '<' in batch metadata prompts."""
+
+    @patch("builtins.input", side_effect=["Artist", "<", "Better Artist", "", "2024"])
+    def test_back_from_album_to_artist(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        result = prompt_batch_metadata()
+        assert result.artist == "Better Artist"
+
+    @patch("builtins.input", side_effect=["Artist", "Album", "<", "New Album", "2024"])
+    def test_back_from_date_to_album(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        result = prompt_batch_metadata()
+        assert result.album == "New Album"

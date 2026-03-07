@@ -415,20 +415,47 @@ def prompt_metadata(
 
     When *single* is True (YouTube tracks), the album prompt is skipped and
     album is automatically set equal to the title.
+    Type '<' at any prompt to go back to the previous field.
     """
-    print(f"\n{bold('Metadata')} {dim('(press Enter to accept default):')}")
+    print(f"\n{bold('Metadata')} {dim('(press Enter to accept default, < to go back):')}")
 
-    artist = _prompt_field("Artist", defaults.artist)
-    artist = _apply_suggestion(artist, list_existing_artists())
-
-    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
-    if single:
-        album = title
-    else:
-        album = _prompt_field("Album", title)
-        album = _apply_suggestion(album, list_existing_albums(artist))
-
-    date = _prompt_field("Date", defaults.date)
+    artist = title = album = date = ""
+    step = 0
+    # Steps: 0=artist, 1=title, 2=album (skipped if single), 3=date
+    while True:
+        if step == 0:
+            val = _prompt_field("Artist", defaults.artist)
+            if val is _BACK:
+                continue  # already at first field
+            artist = val  # type: ignore[assignment]
+            artist = _apply_suggestion(artist, list_existing_artists())
+            step = 1
+        elif step == 1:
+            val = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
+            if val is _BACK:
+                step = 0
+                continue
+            title = val  # type: ignore[assignment]
+            if single:
+                album = title
+                step = 3
+            else:
+                step = 2
+        elif step == 2:
+            val = _prompt_field("Album", title)
+            if val is _BACK:
+                step = 1
+                continue
+            album = val  # type: ignore[assignment]
+            album = _apply_suggestion(album, list_existing_albums(artist))
+            step = 3
+        elif step == 3:
+            val = _prompt_field("Date", defaults.date)
+            if val is _BACK:
+                step = 2 if not single else 1
+                continue
+            date = val  # type: ignore[assignment]
+            break
 
     return AudioMetadata(
         artist=artist,
@@ -440,31 +467,58 @@ def prompt_metadata(
     )
 
 
-def _prompt_field(label: str, default: str) -> str:
+_BACK = object()  # sentinel for "go back to previous field"
+
+
+def _prompt_field(label: str, default: str) -> str | object:
     """Prompt for a single metadata field with a default value.
 
     Type '-' or a blank space to clear a default value (set it to empty string).
+    Type '<' to go back to the previous field.
     """
     if default:
         raw = input(f"  {bold(label)} [{dim(default)}]: ")
         value = raw.strip()
+        if value == "<":
+            return _BACK
         if value == "-" or (raw and not value):
             return ""
         return value if value else default
-    return input(f"  {bold(label)}: ").strip()
+    value = input(f"  {bold(label)}: ").strip()
+    if value == "<":
+        return _BACK
+    return value
 
 
 def prompt_batch_metadata() -> AudioMetadata:
     """Prompt for shared metadata fields (artist, album, date) once for a batch."""
-    print(f"\n{bold('Shared metadata for all files')} {dim('(press Enter to leave empty):')}")
+    print(f"\n{bold('Shared metadata for all files')} {dim('(press Enter to leave empty, < to go back):')}")
 
-    artist = _prompt_field("Artist", "")
-    artist = _apply_suggestion(artist, list_existing_artists())
-
-    album = _prompt_field("Album", "")
-    album = _apply_suggestion(album, list_existing_albums(artist))
-
-    date = _prompt_field("Date", "")
+    artist = album = date = ""
+    step = 0
+    while True:
+        if step == 0:
+            val = _prompt_field("Artist", "")
+            if val is _BACK:
+                continue
+            artist = val  # type: ignore[assignment]
+            artist = _apply_suggestion(artist, list_existing_artists())
+            step = 1
+        elif step == 1:
+            val = _prompt_field("Album", "")
+            if val is _BACK:
+                step = 0
+                continue
+            album = val  # type: ignore[assignment]
+            album = _apply_suggestion(album, list_existing_albums(artist))
+            step = 2
+        elif step == 2:
+            val = _prompt_field("Date", "")
+            if val is _BACK:
+                step = 1
+                continue
+            date = val  # type: ignore[assignment]
+            break
 
     return AudioMetadata(artist=artist, album=album, date=date)
 
