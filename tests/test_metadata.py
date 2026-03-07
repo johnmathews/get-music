@@ -401,34 +401,34 @@ class TestPromptMetadata:
         )
         result = prompt_metadata(defaults)
         assert result.artist == "Default Artist"
-        assert result.album == "Default Album"
         assert result.title == "Default Title"
+        assert result.album == "Default Title"  # album defaults to title
         assert result.date == "2024"
 
-    @patch("builtins.input", side_effect=["Custom Artist", "Custom Album", "Custom Title", "1965"])
+    @patch("builtins.input", side_effect=["Custom Artist", "Custom Title", "Custom Album", "1965"])
     def test_overrides_defaults(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(artist="Default", album="Default", title="Default")
         result = prompt_metadata(defaults)
         assert result.artist == "Custom Artist"
-        assert result.album == "Custom Album"
         assert result.title == "Custom Title"
+        assert result.album == "Custom Album"
         assert result.date == "1965"
 
-    @patch("builtins.input", side_effect=["", "My Album", "", ""])
+    @patch("builtins.input", side_effect=["", "", "My Album", ""])
     def test_partial_override(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(artist="Artist", album="Singles", title="Song")
         result = prompt_metadata(defaults)
         assert result.artist == "Artist"
-        assert result.album == "My Album"
         assert result.title == "Song"
+        assert result.album == "My Album"
 
-    @patch("builtins.input", side_effect=["Artist", "Album", "Title", "2023"])
+    @patch("builtins.input", side_effect=["Artist", "Title", "Album", "2023"])
     def test_fills_empty_defaults(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(artist="", album="", title="")
         result = prompt_metadata(defaults)
         assert result.artist == "Artist"
-        assert result.album == "Album"
         assert result.title == "Title"
+        assert result.album == "Album"
         assert result.date == "2023"
 
     @patch("builtins.input", side_effect=["", "", "", ""])
@@ -460,6 +460,13 @@ class TestPromptMetadata:
         result = prompt_metadata(defaults)
         assert result.artist == "Artist"
         assert result.date == ""
+
+    @patch("builtins.input", side_effect=["", "", "", ""])
+    def test_album_defaults_to_title(self, mock_input: object, *_mocks: object) -> None:
+        defaults = AudioMetadata(artist="Artist", title="My Song")
+        result = prompt_metadata(defaults)
+        assert result.title == "My Song"
+        assert result.album == "My Song"
 
 
 @patch("gm.metadata.list_existing_artists", return_value=[])
@@ -637,8 +644,8 @@ class TestPromptMetadataWithSuggestion:
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
     @patch("builtins.input", side_effect=[
         "Led Zeppelin",  # artist prompt — matches Led-Zeppelin, no suggestion needed
-        "IV",            # album prompt
         "Stairway",      # title prompt
+        "IV",            # album prompt
         "1971",          # date prompt
     ])
     def test_silent_match_when_humanized_equals_input(
@@ -653,8 +660,8 @@ class TestPromptMetadataWithSuggestion:
     @patch("builtins.input", side_effect=[
         "Led Zeplin",    # artist prompt — typo, fuzzy matches Led-Zeppelin
         "y",             # "Did you mean 'Led Zeppelin'?"
-        "IV",            # album prompt
         "Stairway",      # title prompt
+        "IV",            # album prompt
         "1971",          # date prompt
     ])
     def test_suggests_humanized_match_for_typo(
@@ -669,8 +676,8 @@ class TestPromptMetadataWithSuggestion:
     @patch("builtins.input", side_effect=[
         "Led Zeplin",    # artist prompt — typo
         "n",             # reject suggestion
-        "IV",            # album prompt
         "Stairway",      # title prompt
+        "IV",            # album prompt
         "1971",          # date prompt
     ])
     def test_rejects_artist_suggestion(
@@ -680,13 +687,12 @@ class TestPromptMetadataWithSuggestion:
         result = prompt_metadata(defaults)
         assert result.artist == "Led Zeplin"
 
-
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Ex-Re"])
     @patch("builtins.input", side_effect=[
         "Ex:Re",         # artist prompt — colon sanitizes to same dir, keep as-is
-        "Ex:Re",         # album prompt
         "Romance",       # title prompt
+        "Ex:Re",         # album prompt
         "2019",          # date prompt
     ])
     def test_keeps_special_chars_when_sanitized_form_matches(
@@ -701,8 +707,8 @@ class TestPromptMetadataWithSuggestion:
     @patch("gm.metadata.list_existing_artists", return_value=["AC-DC"])
     @patch("builtins.input", side_effect=[
         "AC/DC",         # artist prompt — slash sanitizes to same dir
-        "Back-In-Black", # album prompt
         "Hells Bells",   # title prompt
+        "Back-In-Black", # album prompt
         "1980",          # date prompt
     ])
     def test_keeps_slash_when_sanitized_form_matches(
@@ -984,7 +990,7 @@ class TestStripArtistPrefix:
 class TestArtistStrippingInPrompt:
     """Test that artist prefix is stripped from title and album suggestions."""
 
-    @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "2024"])
+    @patch("builtins.input", side_effect=["Joe Bloggs", "", "", "2024"])
     def test_prompt_metadata_strips_artist_from_title(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
@@ -993,8 +999,9 @@ class TestArtistStrippingInPrompt:
         )
         result = prompt_metadata(defaults)
         assert result.title == "My Song"
+        assert result.album == "My Song"  # album defaults to title
 
-    @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "2024"])
+    @patch("builtins.input", side_effect=["Joe Bloggs", "", "", "2024"])
     def test_prompt_metadata_no_strip_when_no_match(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
@@ -1005,7 +1012,7 @@ class TestArtistStrippingInPrompt:
         assert result.title == "Unrelated Title"
 
     @patch("builtins.input", side_effect=["Ex:Re", "", "", "2019"])
-    def test_prompt_metadata_strips_artist_from_album(
+    def test_prompt_metadata_strips_artist_from_title_and_album_follows(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
@@ -1014,11 +1021,11 @@ class TestArtistStrippingInPrompt:
             title="Ex -Re - Romance 6 Music Live Room",
         )
         result = prompt_metadata(defaults)
-        assert result.album == "Romance 6 Music Live Room"
         assert result.title == "Romance 6 Music Live Room"
+        assert result.album == "Romance 6 Music Live Room"
 
     @patch("builtins.input", side_effect=["Adam Barrett", "", "", "2023"])
-    def test_prompt_metadata_album_unchanged_when_artist_matches_default(
+    def test_prompt_metadata_album_defaults_to_title(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
@@ -1027,6 +1034,7 @@ class TestArtistStrippingInPrompt:
             title="Jigsaw Falling Into Place",
         )
         result = prompt_metadata(defaults)
+        assert result.title == "Jigsaw Falling Into Place"
         assert result.album == "Jigsaw Falling Into Place"
 
 

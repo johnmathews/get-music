@@ -384,13 +384,12 @@ def prompt_metadata(
     artist = _prompt_field("Artist", defaults.artist)
     artist = _apply_suggestion(artist, list_existing_artists())
 
+    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
     if single:
-        title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
         album = title
     else:
-        album = _prompt_field("Album", _strip_artist_prefix(defaults.album, artist))
+        album = _prompt_field("Album", title)
         album = _apply_suggestion(album, list_existing_albums(artist))
-        title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
 
     date = _prompt_field("Date", defaults.date)
 
