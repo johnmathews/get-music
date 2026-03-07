@@ -325,26 +325,50 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     return user_input
 
 
+def _normalized_prefix_end(text: str, prefix: str) -> int:
+    """Find where *prefix* ends in *text*, comparing only alphanumeric chars.
+
+    Returns the index in *text* just past the last character that matched
+    the prefix, or -1 if the prefix doesn't match.
+    """
+    ti, pi = 0, 0
+    while ti < len(text) and pi < len(prefix):
+        tc, pc = text[ti], prefix[pi]
+        if not tc.isalnum():
+            ti += 1
+            continue
+        if not pc.isalnum():
+            pi += 1
+            continue
+        if tc.lower() != pc.lower():
+            return -1
+        ti += 1
+        pi += 1
+    # Remaining prefix chars must all be non-alnum (trailing punctuation)
+    while pi < len(prefix):
+        if prefix[pi].isalnum():
+            return -1
+        pi += 1
+    return ti
+
+
+_LEADING_PUNCTUATION = re.compile(r"^[\s\-\u2013\u2014:,]+")
+
+
 def _strip_artist_prefix(title: str, artist: str) -> str:
     """Strip the artist name from the beginning of a title.
 
-    Tries explicit separators first (" - ", " – ", " — ", ": ", " "),
-    then falls back to a bare prefix match.  Comparison is case-insensitive.
+    Matches the artist as a prefix using alphanumeric-only comparison so
+    that punctuation differences (e.g. "Ex:Re" vs "Ex -Re") are ignored.
+    Strips leading separators/whitespace from the remainder.
     """
     if not artist or not title:
         return title
-    for sep in [" - ", " \u2013 ", " \u2014 ", ": ", " "]:
-        prefix = artist + sep
-        if title.lower().startswith(prefix.lower()):
-            remainder = title[len(prefix):].strip()
-            if remainder:
-                return remainder
-    # Bare prefix with no separator (e.g. "ArtistSong" — unlikely but safe)
-    if title.lower().startswith(artist.lower()) and len(title) > len(artist):
-        remainder = title[len(artist):].strip()
-        if remainder:
-            return remainder
-    return title
+    end = _normalized_prefix_end(title, artist)
+    if end < 0 or end >= len(title):
+        return title
+    remainder = _LEADING_PUNCTUATION.sub("", title[end:])
+    return remainder if remainder else title
 
 
 def prompt_metadata(
@@ -364,7 +388,7 @@ def prompt_metadata(
         title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
         album = title
     else:
-        album = _prompt_field("Album", defaults.album)
+        album = _prompt_field("Album", _strip_artist_prefix(defaults.album, artist))
         album = _apply_suggestion(album, list_existing_albums(artist))
         title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
 

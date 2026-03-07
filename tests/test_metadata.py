@@ -10,6 +10,7 @@ import pytest
 
 from gm.metadata import (
     AudioMetadata,
+    _normalized_prefix_end,
     _strip_artist_prefix,
     check_destination_exists,
     check_video_id_exists,
@@ -902,6 +903,37 @@ class TestWriteMetadataSsh:
         assert "-metadata date=" in cmd
 
 
+class TestNormalizedPrefixEnd:
+    """Test alphanumeric-only prefix matching."""
+
+    def test_exact_match(self) -> None:
+        assert _normalized_prefix_end("Joe Bloggs - Song", "Joe Bloggs") == 10
+
+    def test_punctuation_differences(self) -> None:
+        # "Ex:Re" matches "Ex -Re" (only alphanumeric chars compared)
+        assert _normalized_prefix_end("Ex -Re - Romance", "Ex:Re") == 6
+
+    def test_case_insensitive(self) -> None:
+        assert _normalized_prefix_end("joe bloggs - Song", "Joe Bloggs") == 10
+
+    def test_no_match(self) -> None:
+        assert _normalized_prefix_end("Other Artist", "Joe Bloggs") == -1
+
+    def test_prefix_longer_than_text(self) -> None:
+        assert _normalized_prefix_end("Ex", "Ex:Re") == -1
+
+    def test_trailing_punctuation_in_prefix(self) -> None:
+        # Trailing non-alnum in prefix is OK; returns position after consuming
+        # non-alnum chars in both strings (the ":" in prefix, " " in text)
+        assert _normalized_prefix_end("ABC song", "ABC:") == 4
+
+    def test_empty_prefix(self) -> None:
+        assert _normalized_prefix_end("anything", "") == 0
+
+    def test_empty_text(self) -> None:
+        assert _normalized_prefix_end("", "artist") == -1
+
+
 class TestStripArtistPrefix:
     """Test stripping artist name from title suggestions."""
 
@@ -938,11 +970,19 @@ class TestStripArtistPrefix:
     def test_preserves_title_with_internal_separator(self) -> None:
         assert _strip_artist_prefix("Joe Bloggs - My Song - Live", "Joe Bloggs") == "My Song - Live"
 
+    def test_normalized_punctuation_match(self) -> None:
+        # "Ex:Re" should match "Ex -Re" in the title via alphanumeric comparison
+        assert _strip_artist_prefix("Ex -Re - Romance 6 Music Live Room", "Ex:Re") == "Romance 6 Music Live Room"
+
+    def test_title_equals_artist(self) -> None:
+        # When title is just the artist, return unchanged
+        assert _strip_artist_prefix("Joe Bloggs", "Joe Bloggs") == "Joe Bloggs"
+
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])
-class TestTitleStripping:
-    """Test that artist prefix is stripped from title suggestions in prompts."""
+class TestArtistStrippingInPrompt:
+    """Test that artist prefix is stripped from title and album suggestions."""
 
     @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "2024"])
     def test_prompt_metadata_strips_artist_from_title(
@@ -955,7 +995,7 @@ class TestTitleStripping:
         assert result.title == "My Song"
 
     @patch("builtins.input", side_effect=["Joe Bloggs", "Album", "", "2024"])
-    def test_prompt_metadata_no_strip_when_no_separator(
+    def test_prompt_metadata_no_strip_when_no_match(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
@@ -963,6 +1003,31 @@ class TestTitleStripping:
         )
         result = prompt_metadata(defaults)
         assert result.title == "Unrelated Title"
+
+    @patch("builtins.input", side_effect=["Ex:Re", "", "", "2019"])
+    def test_prompt_metadata_strips_artist_from_album(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(
+            artist="BBC Radio 6 Music",
+            album="Ex -Re - Romance 6 Music Live Room",
+            title="Ex -Re - Romance 6 Music Live Room",
+        )
+        result = prompt_metadata(defaults)
+        assert result.album == "Romance 6 Music Live Room"
+        assert result.title == "Romance 6 Music Live Room"
+
+    @patch("builtins.input", side_effect=["Adam Barrett", "", "", "2023"])
+    def test_prompt_metadata_album_unchanged_when_artist_matches_default(
+        self, mock_input: MagicMock, *_mocks: object,
+    ) -> None:
+        defaults = AudioMetadata(
+            artist="Adam Barrett",
+            album="Jigsaw Falling Into Place",
+            title="Jigsaw Falling Into Place",
+        )
+        result = prompt_metadata(defaults)
+        assert result.album == "Jigsaw Falling Into Place"
 
 
 class TestTitleStrippingBatch:
