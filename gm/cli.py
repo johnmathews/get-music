@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import readline  # noqa: F401 — enables arrow-key editing in input() prompts
 import re
 import sys
 from enum import Enum, auto
