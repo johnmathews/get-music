@@ -27,7 +27,7 @@ gm https://youtube.com/shorts/abc123
 
 This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and
 prompts you to confirm/override. YouTube tracks are treated as singles — the album is automatically set to the track
-title. The file is placed at `/mnt/nfs/music/Artist/Title/Title-[video_id].opus`.
+title. The file is placed at `/mnt/nfs/music/youtube/Artist/Title/Title-[video_id].opus`.
 
 YouTube downloads include:
 
@@ -253,11 +253,13 @@ All files are stored on the LXC at `/mnt/nfs/music/` in this structure:
 ```
 /mnt/nfs/music/
 ├── Artist Name/
-│   ├── Album Name/
-│   │   ├── Song-Title.flac
-│   │   └── cover.jpg
-│   └── Another Song/
-│       └── Another-Song-[dQw4w9WgXcQ].opus
+│   └── Album Name/
+│       └── Song-Title.flac
+└── youtube/
+    └── Artist Name/
+        └── Another Song/
+            ├── Another-Song-[dQw4w9WgXcQ].opus
+            └── cover.jpg
 ```
 
 - Spaces are preserved in filenames and directory names (matching Lidarr's convention)

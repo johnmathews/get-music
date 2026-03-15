@@ -12,7 +12,7 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 - **Navidrome** runs on an LXC container on a Proxmox server
 - SSH access: `ssh music` (home network) or `ssh musict` (remote)
 - Music files stored at `/mnt/nfs/music/` on the LXC (NFS mount to TrueNAS `music` dataset on `tank` HDD pool)
-- Directory structure: `Artist/Album/Song`
+- Directory structure: `Artist/Album/Song` (local files), `youtube/Artist/Album/Song` (YouTube)
 
 ## Tool Design
 

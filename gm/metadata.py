@@ -17,6 +17,7 @@ from gm.ssh import ssh_run, quote_path
 
 
 MUSIC_ROOT = "/mnt/nfs/music"
+YOUTUBE_ROOT = "/mnt/nfs/music/youtube"
 
 
 @dataclass
@@ -36,9 +37,11 @@ _UNSAFE_CHARS = re.compile(r"""[/\\:\x00'"`\$\?\*<>\|;&\(\)\n\t\r]""")
 def humanize_name(name: str) -> str:
     """Convert a hyphenated filename-style name back to spaces for metadata.
 
-    Filesystem paths use sanitize_filename for the reverse.
+    Only replaces hyphens that join words (no surrounding spaces), so
+    "Led-Zeppelin" becomes "Led Zeppelin" but " - " separators are
+    preserved.  Filesystem paths use sanitize_filename for the reverse.
     """
-    return name.replace("-", " ")
+    return re.sub(r"(?<!\s)-(?!\s)", " ", name)
 
 
 def sanitize_filename(name: str) -> str:
@@ -62,15 +65,16 @@ def sanitize_filename(name: str) -> str:
 
 
 def build_destination_path(
-    meta: AudioMetadata, extension: str, *, video_id: str = ""
+    meta: AudioMetadata, extension: str, *, video_id: str = "",
+    music_root: str = MUSIC_ROOT,
 ) -> str:
     """Build the full destination path on the LXC from metadata."""
     artist = sanitize_filename(meta.artist)
     album = sanitize_filename(meta.album)
     title = sanitize_filename(meta.title)
     if video_id:
-        return f"{MUSIC_ROOT}/{artist}/{album}/{title}-[{video_id}]{extension}"
-    return f"{MUSIC_ROOT}/{artist}/{album}/{title}{extension}"
+        return f"{music_root}/{artist}/{album}/{title}-[{video_id}]{extension}"
+    return f"{music_root}/{artist}/{album}/{title}{extension}"
 
 
 def read_metadata(path: Path) -> AudioMetadata:
@@ -270,7 +274,7 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
     p = PurePosixPath(dest)
     tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
     ffmpeg_cmd = shlex.join(
-        ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
+        ["ffmpeg", "-y", "-i", dest, "-map", "0:a", "-c", "copy"]
         + metadata_args
         + [tmp]
     )
@@ -282,18 +286,18 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
             print(f"  {dim(result.stderr.strip().splitlines()[-1])}")
 
 
-def list_existing_artists() -> list[str]:
+def list_existing_artists(music_root: str = MUSIC_ROOT) -> list[str]:
     """List artist directories on the LXC."""
-    result = ssh_run(f"ls -1 '{MUSIC_ROOT}' 2>/dev/null")
+    result = ssh_run(f"ls -1 {quote_path(music_root)} 2>/dev/null")
     if result.returncode != 0 or not result.stdout.strip():
         return []
     return [line for line in result.stdout.strip().split("\n") if line]
 
 
-def list_existing_albums(artist: str) -> list[str]:
+def list_existing_albums(artist: str, music_root: str = MUSIC_ROOT) -> list[str]:
     """List album directories for an artist on the LXC."""
     safe_artist = sanitize_filename(artist)
-    result = ssh_run(f"ls -1 {quote_path(f'{MUSIC_ROOT}/{safe_artist}')} 2>/dev/null")
+    result = ssh_run(f"ls -1 {quote_path(f'{music_root}/{safe_artist}')} 2>/dev/null")
     if result.returncode != 0 or not result.stdout.strip():
         return []
     return [line for line in result.stdout.strip().split("\n") if line]
@@ -347,12 +351,12 @@ def _apply_suggestion(user_input: str, existing: list[str]) -> str:
     # e.g. "Ex:Re" → "Ex-Re" matches existing "Ex-Re", keep "Ex:Re" for metadata.
     if sanitize_filename(user_input) == match:
         return user_input
-    humanized = humanize_name(match)
-    if humanized == user_input:
-        return user_input  # Directory exists; user input already correct
-    confirm = input(f"  Did you mean {bold_cyan(humanized)}? [Y/n]: ").strip().lower()
+    # Skip prompt if input differs only by case
+    if user_input.lower() == match.lower():
+        return user_input
+    confirm = input(f"  Did you mean {bold_cyan(match)}? [Y/n]: ").strip().lower()
     if confirm != "n":
-        return humanized
+        return match
     return user_input
 
 
@@ -410,6 +414,7 @@ def _strip_artist_prefix(title: str, artist: str) -> str:
 
 def prompt_metadata(
     defaults: AudioMetadata, *, single: bool = False,
+    music_root: str = MUSIC_ROOT,
 ) -> AudioMetadata:
     """Prompt the user to confirm or override metadata fields.
 
@@ -428,7 +433,7 @@ def prompt_metadata(
             if val is _BACK:
                 continue  # already at first field
             artist = val  # type: ignore[assignment]
-            artist = _apply_suggestion(artist, list_existing_artists())
+            artist = _apply_suggestion(artist, list_existing_artists(music_root))
             step = 1
         elif step == 1:
             val = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
@@ -447,7 +452,7 @@ def prompt_metadata(
                 step = 1
                 continue
             album = val  # type: ignore[assignment]
-            album = _apply_suggestion(album, list_existing_albums(artist))
+            album = _apply_suggestion(album, list_existing_albums(artist, music_root))
             step = 3
         elif step == 3:
             val = _prompt_field("Date", defaults.date)

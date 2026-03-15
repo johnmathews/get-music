@@ -14,6 +14,8 @@ from gm.youtube import (
     build_ytdlp_command,
     parse_ytdlp_metadata,
     extract_video_id,
+    update_ytdlp,
+    _detect_ytdlp_install_method,
     _make_temp_dir,
 )
 from gm.ssh import SSH_HOST
@@ -214,12 +216,12 @@ class TestHandleYoutube:
 
         # Verify file was moved with video ID in brackets, native extension
         mv_call_cmd = mock_ssh.call_args_list[6][0][0]
-        assert "/mnt/nfs/music/Real Artist/Song/Song-[abc123].opus" in mv_call_cmd
+        assert "/mnt/nfs/music/youtube/Real Artist/Song/Song-[abc123].opus" in mv_call_cmd
 
         # Verify metadata was written back to the audio file
         mock_write_meta.assert_called_once()
         write_dest, write_meta = mock_write_meta.call_args[0]
-        assert "/mnt/nfs/music/Real Artist/Song/Song-[abc123].opus" == write_dest
+        assert "/mnt/nfs/music/youtube/Real Artist/Song/Song-[abc123].opus" == write_dest
         assert write_meta.album == "Song"
 
         # Verify import was logged
@@ -250,7 +252,7 @@ class TestHandleYoutube:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
 
-        stale_dest = "/mnt/nfs/music/Artist/Song/Song-[abc123].opus"
+        stale_dest = "/mnt/nfs/music/youtube/Artist/Song/Song-[abc123].opus"
         mock_find_vid.return_value = [ImportRecord(destination=stale_dest)]
         # check_destination_exists returns False (file gone) — default from class decorator
 
@@ -298,7 +300,7 @@ class TestHandleYoutube:
         from gm.history import ImportRecord
 
         mock_find_vid.return_value = [
-            ImportRecord(destination="/mnt/nfs/music/Real-Artist/Song/Song-[abc123].opus"),
+            ImportRecord(destination="/mnt/nfs/music/youtube/Real-Artist/Song/Song-[abc123].opus"),
         ]
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -308,6 +310,120 @@ class TestHandleYoutube:
         mock_ssh.assert_not_called()
         mock_prompt.assert_not_called()
         mock_record.assert_not_called()
+
+    @patch("gm.youtube.update_ytdlp", return_value=False)
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_exits_on_download_failure(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_update: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+    ) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 1, "", ""),  # yt-dlp fails
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup)
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        # update_ytdlp was attempted
+        mock_update.assert_called_once()
+        # Temp dir cleaned up
+        cleanup_cmd = mock_ssh.call_args_list[2][0][0]
+        assert "rm -rf" in cleanup_cmd
+        mock_prompt.assert_not_called()
+
+    @patch("gm.youtube.update_ytdlp", return_value=True)
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_retries_after_ytdlp_update(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_update: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+    ) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 1, "", ""),  # yt-dlp fails
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup)
+            # After update_ytdlp succeeds, retry:
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp succeeds
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="Song", title="Song"
+        )
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_update.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.youtube.update_ytdlp", return_value=True)
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_exits_when_retry_also_fails(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_update: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+    ) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 1, "", ""),  # yt-dlp fails
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup)
+            # After update_ytdlp succeeds, retry also fails:
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 1, "", ""),  # yt-dlp fails again
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup)
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_update.assert_called_once()
+        mock_prompt.assert_not_called()
 
     @patch("gm.youtube.record_import")
     @patch("gm.youtube.check_destination_exists", return_value=False)
@@ -405,7 +521,7 @@ class TestHandleYoutube:
         from gm.history import ImportRecord
 
         mock_find_vid.return_value = [
-            ImportRecord(destination="/mnt/nfs/music/Artist/Song/Song-[abc123].opus"),
+            ImportRecord(destination="/mnt/nfs/music/youtube/Artist/Song/Song-[abc123].opus"),
         ]
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -556,3 +672,123 @@ class TestHandleYoutube:
         assert record.title == "New-Song"
         assert record.album == "New-Song"
         assert "New-Song" in record.destination
+
+
+class TestDetectYtdlpInstallMethod:
+    """Test yt-dlp install method detection on the LXC."""
+
+    @patch("gm.youtube.ssh_run")
+    def test_detects_uv(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/root/.local/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 0, "yt-dlp v2025.6.1\n", ""),  # uv tool list
+        ]
+        assert _detect_ytdlp_install_method() == "uv"
+
+    @patch("gm.youtube.ssh_run")
+    def test_detects_pipx(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/usr/local/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 1, "", ""),  # uv tool list fails
+            subprocess.CompletedProcess([], 0, "  - yt-dlp\n", ""),  # pipx list
+        ]
+        assert _detect_ytdlp_install_method() == "pipx"
+
+    @patch("gm.youtube.ssh_run")
+    def test_detects_pip(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/usr/local/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 1, "", ""),  # uv tool list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pipx list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # dpkg -S fails
+            subprocess.CompletedProcess([], 0, "Name: yt-dlp\n", ""),  # pip show
+        ]
+        assert _detect_ytdlp_install_method() == "pip"
+
+    @patch("gm.youtube.ssh_run")
+    def test_detects_brew(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/opt/homebrew/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 1, "", ""),  # uv tool list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pipx list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # dpkg -S fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pip show fails
+            subprocess.CompletedProcess([], 0, "", ""),  # brew list succeeds
+        ]
+        assert _detect_ytdlp_install_method() == "brew"
+
+    @patch("gm.youtube.ssh_run")
+    def test_detects_standalone(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/usr/local/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 1, "", ""),  # uv tool list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pipx list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # dpkg -S fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pip show fails
+            subprocess.CompletedProcess([], 1, "", ""),  # brew list fails
+        ]
+        assert _detect_ytdlp_install_method() == "standalone"
+
+    @patch("gm.youtube.ssh_run")
+    def test_returns_unknown_when_not_found(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "")  # which fails
+        assert _detect_ytdlp_install_method() == "unknown"
+
+    @patch("gm.youtube.ssh_run")
+    def test_apt_returns_unknown(self, mock_ssh: MagicMock) -> None:
+        """apt-installed yt-dlp is too stale — report as unknown so user gets manual hint."""
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "/usr/bin/yt-dlp\n", ""),  # which
+            subprocess.CompletedProcess([], 1, "", ""),  # uv tool list fails
+            subprocess.CompletedProcess([], 1, "", ""),  # pipx list fails
+            subprocess.CompletedProcess([], 0, "yt-dlp: /usr/bin/yt-dlp\n", ""),  # dpkg -S
+        ]
+        assert _detect_ytdlp_install_method() == "unknown"
+
+
+class TestUpdateYtdlp:
+    """Test yt-dlp auto-update."""
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="uv")
+    @patch("gm.youtube.ssh_run")
+    def test_updates_via_uv(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        assert update_ytdlp() is True
+        cmd = mock_ssh.call_args[0][0]
+        assert cmd == "uv tool upgrade yt-dlp"
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="pip")
+    @patch("gm.youtube.ssh_run")
+    def test_updates_via_pip(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        assert update_ytdlp() is True
+        cmd = mock_ssh.call_args[0][0]
+        assert cmd == "pip install -U yt-dlp"
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="pipx")
+    @patch("gm.youtube.ssh_run")
+    def test_updates_via_pipx(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        assert update_ytdlp() is True
+        cmd = mock_ssh.call_args[0][0]
+        assert cmd == "pipx upgrade yt-dlp"
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="standalone")
+    @patch("gm.youtube.ssh_run")
+    def test_updates_standalone(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        assert update_ytdlp() is True
+        cmd = mock_ssh.call_args[0][0]
+        assert cmd == "yt-dlp -U"
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="unknown")
+    @patch("gm.youtube.ssh_run")
+    def test_returns_false_when_unknown(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        assert update_ytdlp() is False
+        mock_ssh.assert_not_called()
+
+    @patch("gm.youtube._detect_ytdlp_install_method", return_value="pip")
+    @patch("gm.youtube.ssh_run")
+    def test_returns_false_on_update_failure(self, mock_ssh: MagicMock, mock_detect: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "error")
+        assert update_ytdlp() is False

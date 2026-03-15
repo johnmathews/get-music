@@ -8,8 +8,8 @@ import uuid
 from pathlib import PurePosixPath
 
 from gm.ui import (
-    E_DONE, E_LINK, E_SEARCH, E_SKIP,
-    bold_cyan, bold_green, cyan, yellow,
+    E_CHECK, E_DONE, E_ERROR, E_LINK, E_SEARCH, E_SKIP, E_WARN,
+    bold, bold_cyan, bold_green, bold_yellow, cyan, dim, yellow,
 )
 from gm.metadata import (
     AudioMetadata,
@@ -21,7 +21,7 @@ from gm.metadata import (
     prompt_duplicate_action,
     prompt_metadata,
     write_metadata_ssh,
-    MUSIC_ROOT,
+    YOUTUBE_ROOT,
 )
 from gm.history import ImportRecord, record_import, delete_import, find_by_video_id
 from gm.ssh import ssh_run, SSH_HOST, quote_path
@@ -29,6 +29,68 @@ from gm.ssh import ssh_run, SSH_HOST, quote_path
 def _make_temp_dir() -> str:
     """Generate a unique temp directory path for a download."""
     return f"/tmp/gm-download-{uuid.uuid4().hex[:12]}"
+
+
+def _detect_ytdlp_install_method() -> str:
+    """Detect how yt-dlp was installed on the LXC.
+
+    Returns one of: "uv", "pipx", "pip", "brew", "standalone", "unknown".
+    Checks uv first (uv tool installs put binaries in ~/.local/bin with a
+    uv-managed venv), then pipx, pip, brew, and finally standalone.
+    """
+    result = ssh_run("which yt-dlp 2>/dev/null")
+    if result.returncode != 0:
+        return "unknown"
+    path = result.stdout.strip()
+    # uv tool: check if the binary is a uv-managed tool
+    result = ssh_run("uv tool list 2>/dev/null | grep yt-dlp")
+    if result.returncode == 0 and "yt-dlp" in result.stdout:
+        return "uv"
+    result = ssh_run("pipx list 2>/dev/null | grep yt-dlp")
+    if result.returncode == 0 and "yt-dlp" in result.stdout:
+        return "pipx"
+    # pip-installed (but not via system package manager)
+    result = ssh_run(f"dpkg -S {shlex.quote(path)} 2>/dev/null")
+    if result.returncode == 0:
+        # Installed via apt — too stale to be useful, but we can't safely
+        # update it. Report as unknown so the user gets a manual hint.
+        return "unknown"
+    result = ssh_run("pip show yt-dlp 2>/dev/null")
+    if result.returncode == 0:
+        return "pip"
+    result = ssh_run("brew list --formula yt-dlp 2>/dev/null")
+    if result.returncode == 0:
+        return "brew"
+    return "standalone"
+
+
+_UPDATE_COMMANDS: dict[str, str] = {
+    "uv": "uv tool upgrade yt-dlp",
+    "pip": "pip install -U yt-dlp",
+    "pipx": "pipx upgrade yt-dlp",
+    "standalone": "yt-dlp -U",
+    "brew": "brew upgrade yt-dlp",
+}
+
+
+def update_ytdlp() -> bool:
+    """Detect how yt-dlp is installed on the LXC and update it.
+
+    Returns True if the update succeeded.
+    """
+    method = _detect_ytdlp_install_method()
+    if method == "unknown":
+        print(f"{E_ERROR}{yellow('Cannot find yt-dlp on the LXC')}")
+        return False
+
+    update_cmd = _UPDATE_COMMANDS[method]
+    print(f"{E_WARN}{bold_yellow('yt-dlp may be outdated — updating')} {dim(f'({method}: {update_cmd})')}")
+    result = ssh_run(update_cmd, stream=True)
+    if result.returncode != 0:
+        print(f"{E_ERROR}{yellow('Update failed — try manually:')} {bold(f'ssh {SSH_HOST} {shlex.quote(update_cmd)}')}")
+        return False
+    print(f"{E_CHECK}{bold_green('yt-dlp updated')}")
+    return True
 
 
 def extract_video_id(url: str) -> str:
@@ -112,7 +174,7 @@ def handle_youtube(url: str) -> None:
             else:
                 existing = hit_dest
         if not existing:
-            existing = check_video_id_exists(MUSIC_ROOT, video_id)
+            existing = check_video_id_exists(YOUTUBE_ROOT, video_id)
         if existing:
             action = prompt_duplicate_action(existing)
             if action == "skip":
@@ -125,7 +187,21 @@ def handle_youtube(url: str) -> None:
     # Create temp directory and download
     ytdlp_cmd = shlex.join(build_ytdlp_command(url, temp_dir))
     ssh_run(f"mkdir -p {temp_dir}", check=True)
-    ssh_run(ytdlp_cmd, check=True, stream=True)
+    result = ssh_run(ytdlp_cmd, stream=True)
+    if result.returncode != 0:
+        ssh_run(f"rm -rf {temp_dir}")
+        # Try updating yt-dlp and retrying once
+        if update_ytdlp():
+            print(f"{E_LINK}{bold_cyan('Retrying download...')}")
+            ssh_run(f"mkdir -p {temp_dir}", check=True)
+            result = ssh_run(ytdlp_cmd, stream=True)
+            if result.returncode != 0:
+                ssh_run(f"rm -rf {temp_dir}")
+                print(f"{E_ERROR}{yellow('Download still failed after updating yt-dlp')}")
+                raise SystemExit(1)
+        else:
+            print(f"{E_ERROR}{yellow('Download failed')}")
+            raise SystemExit(1)
 
     # Read metadata from info.json
     result = ssh_run(
@@ -151,9 +227,9 @@ def handle_youtube(url: str) -> None:
     thumb_file = thumb_result.stdout.strip()
 
     # Prompt user for metadata (YouTube tracks are singles: album = title)
-    meta = prompt_metadata(defaults, single=True)
+    meta = prompt_metadata(defaults, single=True, music_root=YOUTUBE_ROOT)
     extension = PurePosixPath(audio_file).suffix
-    dest = build_destination_path(meta, extension, video_id=video_id)
+    dest = build_destination_path(meta, extension, video_id=video_id, music_root=YOUTUBE_ROOT)
     dest_dir = str(PurePosixPath(dest).parent)
 
     # Late duplicate check: destination path only (if not already handled)
@@ -164,8 +240,8 @@ def handle_youtube(url: str) -> None:
             print(f"{E_SKIP}{yellow('Skipped.')}")
             return
         if action == "rename":
-            meta = prompt_metadata(meta, single=True)
-            dest = build_destination_path(meta, extension, video_id=video_id)
+            meta = prompt_metadata(meta, single=True, music_root=YOUTUBE_ROOT)
+            dest = build_destination_path(meta, extension, video_id=video_id, music_root=YOUTUBE_ROOT)
             dest_dir = str(PurePosixPath(dest).parent)
 
     # Move file to final destination

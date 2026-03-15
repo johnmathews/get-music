@@ -63,6 +63,10 @@ class TestHumanizeName:
     def test_empty_string(self) -> None:
         assert humanize_name("") == ""
 
+    def test_preserves_spaced_dash_separator(self) -> None:
+        assert humanize_name("Classical Music for Reading - Mozart, Chopin") == \
+            "Classical Music for Reading - Mozart, Chopin"
+
 
 class TestNormalizeDate:
     """Test date normalization."""
@@ -674,35 +678,35 @@ class TestPromptMetadataWithSuggestion:
     """Test prompt_metadata with artist/album suggestion flow."""
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
-    @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
+    @patch("gm.metadata.list_existing_artists", return_value=["Led Zeppelin"])
     @patch("builtins.input", side_effect=[
-        "Led Zeppelin",  # artist prompt — matches Led-Zeppelin, no suggestion needed
+        "led zeppelin",  # artist prompt — case-insensitive match, no suggestion needed
         "Stairway",      # title prompt
         "IV",            # album prompt
         "1971",          # date prompt
     ])
-    def test_silent_match_when_humanized_equals_input(
+    def test_silent_match_when_case_insensitive_equals_input(
         self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
-        assert result.artist == "Led Zeppelin"
+        assert result.artist == "led zeppelin"
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
     @patch("builtins.input", side_effect=[
         "Led Zeplin",    # artist prompt — typo, fuzzy matches Led-Zeppelin
-        "y",             # "Did you mean 'Led Zeppelin'?"
+        "y",             # "Did you mean 'Led-Zeppelin'?"
         "Stairway",      # title prompt
         "IV",            # album prompt
         "1971",          # date prompt
     ])
-    def test_suggests_humanized_match_for_typo(
+    def test_suggests_directory_name_for_typo(
         self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
-        assert result.artist == "Led Zeppelin"
+        assert result.artist == "Led-Zeppelin"
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
@@ -735,6 +739,22 @@ class TestPromptMetadataWithSuggestion:
         result = prompt_metadata(defaults)
         # "Ex:Re" sanitizes to "Ex-Re" which matches — keep the user's "Ex:Re"
         assert result.artist == "Ex:Re"
+
+    @patch("gm.metadata.list_existing_albums", return_value=[])
+    @patch("gm.metadata.list_existing_artists", return_value=["Jay-Z"])
+    @patch("builtins.input", side_effect=[
+        "jay z",         # artist prompt — fuzzy matches Jay-Z
+        "y",             # "Did you mean 'Jay-Z'?"
+        "99 Problems",   # title prompt
+        "The Black Album",  # album prompt
+        "2003",          # date prompt
+    ])
+    def test_preserves_hyphen_in_artist_name(
+        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+    ) -> None:
+        defaults = AudioMetadata()
+        result = prompt_metadata(defaults)
+        assert result.artist == "Jay-Z"
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["AC-DC"])
@@ -892,6 +912,7 @@ class TestWriteMetadataSsh:
         assert "-metadata artist=Artist" in cmd
         assert "-metadata album=Song" in cmd
         assert "-metadata title=Song" in cmd
+        assert "-map 0:a" in cmd
         assert "-c copy" in cmd
 
     @patch("gm.metadata.ssh_run")
