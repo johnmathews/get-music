@@ -26,8 +26,8 @@ gm https://youtube.com/shorts/abc123
 ```
 
 This SSHs into the LXC, runs `yt-dlp` to download audio in its native format (usually opus), extracts metadata, and
-prompts you to confirm/override. YouTube tracks are treated as singles — the album is automatically set to the track
-title. The file is placed at `/mnt/nfs/music/youtube/Artist/Title/Title-[video_id].opus`.
+prompts you to confirm/override. YouTube tracks are treated as singles — the album defaults to the track
+title but can be changed. The file is placed at `/mnt/nfs/music/youtube/Artist/Album/Title-[video_id].opus`.
 
 YouTube downloads include:
 
@@ -143,7 +143,7 @@ Metadata (press Enter to accept default):
 - Type a new value to override
 - Type `<` to go back to the previous field
 - For YouTube downloads, the channel name is used as the default artist (with " - Topic" suffix stripped)
-- YouTube tracks are singles — the album is automatically set equal to the title (no album prompt)
+- YouTube tracks are singles — the album defaults to the title but can be overridden at the prompt
 - When a metadata field is left empty (or cleared with `-` or a space), the tag is explicitly removed from the file — stale values from the source won't persist
 - Title suggestions automatically strip the artist name prefix — if the artist is "Joe Bloggs" and the detected title is "Joe Bloggs - My Song", the suggestion shows just "My Song"
 
@@ -281,3 +281,26 @@ All imports are recorded in a local SQLite database at `~/.local/share/gm/import
 
 This enables fast duplicate detection without needing SSH calls for every file. Stale records (for files deleted from the
 server) are automatically pruned during imports, or can be bulk-cleaned with `gm prune`.
+
+## SSH Connection Management
+
+`gm` uses SSH connection multiplexing to reuse a single TCP connection across all SSH calls in a session. This
+dramatically reduces latency — a typical YouTube download involves 10+ SSH operations that would otherwise each require a
+full handshake.
+
+Configuration is automatic (via `ControlMaster`/`ControlPath`/`ControlPersist` options passed to each SSH call). The
+multiplexed connection persists for 60 seconds after the last use, so back-to-back `gm` invocations also benefit.
+
+All SSH commands enforce timeouts:
+
+- **Connection timeout:** 10 seconds (prevents hangs when the LXC is unreachable)
+- **Command timeout:** 5 minutes (standard), 10 minutes (streaming downloads)
+- **Keep-alive:** every 15 seconds, with 3 missed responses before disconnect
+
+If an SSH command times out, it is treated as a failure with a descriptive error message.
+
+### Temp directory cleanup
+
+YouTube downloads use temp directories (`/tmp/gm-download-*`) on the LXC. If a download is interrupted (Ctrl+C, network
+drop), orphaned temp dirs may be left behind. `gm` automatically cleans up any temp dirs older than 30 minutes at the
+start of each YouTube download.

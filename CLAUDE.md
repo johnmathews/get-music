@@ -20,7 +20,7 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 - Uses `yt-dlp` on the LXC (via SSH) for YouTube downloads — audio, artwork, metadata
 - Navidrome is audio-only — always extract audio from video files
 - YouTube audio kept in native format (usually opus); Navidrome transcodes on the fly
-- YouTube tracks are singles — album is automatically set equal to the title (no album prompt)
+- YouTube tracks are singles — album defaults to the title but can be overridden at the prompt
 - Local files transferred to LXC via `scp`; YouTube files download directly to NFS mount
 - Intermediate files (extracted audio, thumbnails) cleaned up locally after transfer
 - Spaces allowed in directory names to match Lidarr (e.g., `Led Zeppelin/Led Zeppelin IV/Stairway-To-Heaven.opus`)
@@ -65,7 +65,7 @@ gm help
 - `gm/files.py` — Local file/directory processing and scp transfer
 - `gm/metadata.py` — Audio metadata extraction (mutagen), user prompts, duplicate checks, artist/album lookup
 - `gm/history.py` — SQLite import log for tracking imports and duplicate detection
-- `gm/ssh.py` — Shared SSH utilities (ssh_run with optional `stream` mode, SSH_HOST)
+- `gm/ssh.py` — Shared SSH utilities (ssh_run with connection multiplexing, timeouts, SSH_HOST)
 - `tests/` — pytest test suite (100% coverage)
 - `docs/usage.md` — Detailed usage documentation
 
