@@ -209,12 +209,10 @@ class TestHandleYoutube:
     ) -> None:
         from gm.metadata import AudioMetadata
 
-        # Mock the SSH calls in sequence:
-        # 1. mkdir temp  2. yt-dlp  3. cat info.json  4. find audio
-        # 5. find thumbnail  6. mkdir dest  7. mv audio  8. rm -rf temp
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Channel", "title": "Song", "artist": "Real Artist",
             }), ""),  # cat info.json
@@ -236,7 +234,7 @@ class TestHandleYoutube:
         assert "--embed-metadata" in ytdlp_call_cmd
 
         # Verify file was moved with video ID in brackets, native extension
-        mv_call_cmd = mock_ssh.call_args_list[6][0][0]
+        mv_call_cmd = mock_ssh.call_args_list[7][0][0]
         assert "/mnt/nfs/music/youtube/Real Artist/Song/Song-[abc123].opus" in mv_call_cmd
 
         # Verify metadata was written back to the audio file
@@ -282,6 +280,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -401,6 +400,7 @@ class TestHandleYoutube:
             # After update_ytdlp succeeds, retry:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp succeeds
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -478,10 +478,12 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Channel", "title": "Song",
             }), ""),  # cat info.json
             subprocess.CompletedProcess([], 0, "\n", ""),  # find audio — empty
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
         mock_prompt.return_value = AudioMetadata(
             artist="Channel", album="Song", title="Song"
@@ -512,6 +514,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -529,7 +532,7 @@ class TestHandleYoutube:
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
         # Verify thumbnail was moved to cover.jpg in dest dir
-        mv_thumb_cmd = mock_ssh.call_args_list[7][0][0]
+        mv_thumb_cmd = mock_ssh.call_args_list[8][0][0]
         assert "cover.jpg" in mv_thumb_cmd
         assert f"{TEMP_DIR}/Song.jpg" in mv_thumb_cmd
 
@@ -563,6 +566,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -606,6 +610,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -646,6 +651,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -696,6 +702,7 @@ class TestHandleYoutube:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -769,6 +776,7 @@ class TestHandleYoutubeThumbnailFailure:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
@@ -808,6 +816,7 @@ class TestHandleYoutubeThumbnailFailure:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
@@ -846,6 +855,7 @@ class TestHandleYoutubeThumbnailFailure:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
@@ -881,6 +891,7 @@ class TestHandleYoutubeThumbnailFailure:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
@@ -933,6 +944,7 @@ class TestHandleYoutubePostVerification:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -979,6 +991,7 @@ class TestHandleYoutubePostVerification:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json
@@ -1022,6 +1035,7 @@ class TestHandleYoutubePostVerification:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
             subprocess.CompletedProcess([], 0, json.dumps({
                 "uploader": "Artist", "title": "Song",
             }), ""),  # cat info.json

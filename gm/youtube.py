@@ -223,28 +223,37 @@ def handle_youtube(url: str) -> None:
             print(f"{E_ERROR}{yellow('Download failed')}")
             raise SystemExit(1)
 
-    # Read metadata from info.json (use ls -1t to pick the newest if multiple exist)
+    # Read metadata from info.json
     result = ssh_run(
-        f"cat \"$(ls -1t {temp_dir}/*.info.json | head -1)\"", check=True
+        f"find {quote_path(temp_dir)} -maxdepth 1 -name '*.info.json' -print0"
+        f" | xargs -0 ls -1t | head -1",
     )
+    info_json_file = result.stdout.strip()
+    if not info_json_file:
+        ssh_run(f"rm -rf {temp_dir}")
+        raise RuntimeError("No info.json file found after download")
+    result = ssh_run(f"cat {quote_path(info_json_file)}", check=True)
     defaults = parse_ytdlp_metadata(result.stdout)
 
-    # Find the downloaded audio file (ls -1t picks newest if multiple exist)
+    # Find the downloaded audio file
     audio_result = ssh_run(
-        f"ls -1t {temp_dir}/*.mp3 {temp_dir}/*.opus {temp_dir}/*.m4a "
-        f"{temp_dir}/*.flac {temp_dir}/*.ogg 2>/dev/null | head -1",
-        check=True,
+        f"find {quote_path(temp_dir)} -maxdepth 1"
+        f" \\( -name '*.mp3' -o -name '*.opus' -o -name '*.m4a'"
+        f" -o -name '*.flac' -o -name '*.ogg' \\)"
+        f" -print0 | xargs -0 ls -1t 2>/dev/null | head -1",
     )
     audio_file = audio_result.stdout.strip()
     if not audio_file:
+        ssh_run(f"rm -rf {temp_dir}")
         raise RuntimeError("No audio file found after download")
 
     # Verify thumbnail is embedded in the audio file
     if not verify_thumbnail_embedded(audio_file):
         # Diagnose why: check if thumbnail file exists loose in temp dir
         thumb_check = ssh_run(
-            f"ls -1 {temp_dir}/*.jpg {temp_dir}/*.png "
-            f"{temp_dir}/*.webp 2>/dev/null | head -1"
+            f"find {quote_path(temp_dir)} -maxdepth 1"
+            f" \\( -name '*.jpg' -o -name '*.png' -o -name '*.webp' \\)"
+            f" -print -quit"
         )
         loose_thumb = thumb_check.stdout.strip()
 
@@ -269,8 +278,9 @@ def handle_youtube(url: str) -> None:
 
     # Find thumbnail file if present (for cover art in album directory)
     thumb_result = ssh_run(
-        f"ls -1 {temp_dir}/*.jpg {temp_dir}/*.png "
-        f"{temp_dir}/*.webp 2>/dev/null | head -1"
+        f"find {quote_path(temp_dir)} -maxdepth 1"
+        f" \\( -name '*.jpg' -o -name '*.png' -o -name '*.webp' \\)"
+        f" -print -quit"
     )
     thumb_file = thumb_result.stdout.strip()
 
