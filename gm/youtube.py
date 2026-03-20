@@ -34,15 +34,29 @@ def _make_temp_dir() -> str:
 
 
 def verify_thumbnail_embedded(audio_file: str) -> bool:
-    """Check whether the audio file has an embedded thumbnail via ffprobe.
+    """Check whether the audio file has an embedded thumbnail.
 
-    Returns True if ffprobe finds a video stream (thumbnail) in the file.
+    For most formats, checks for a video stream via ffprobe. For opus/ogg
+    files, also checks for a metadata_block_picture tag via mutagen, since
+    mutagen embeds thumbnails as FLAC Picture metadata (not a video stream).
     """
     result = ssh_run(
         f"ffprobe -v quiet -show_entries stream=codec_type -of csv=p=0 "
         f"{quote_path(audio_file)}"
     )
-    return "video" in result.stdout
+    if "video" in result.stdout:
+        return True
+
+    # For opus/ogg, check mutagen's metadata_block_picture
+    ext = PurePosixPath(audio_file).suffix.lower()
+    if ext in (".opus", ".ogg"):
+        check = ssh_run(
+            f"python3 -c \"from mutagen.oggopus import OggOpus;"
+            f"print('metadata_block_picture' in OggOpus({audio_file!r}))\""
+        )
+        return check.stdout.strip() == "True"
+
+    return False
 
 
 def _detect_ytdlp_install_method() -> str:

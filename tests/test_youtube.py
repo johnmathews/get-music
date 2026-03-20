@@ -725,7 +725,7 @@ class TestHandleYoutube:
 
 
 class TestVerifyThumbnailEmbedded:
-    """Test ffprobe-based thumbnail verification."""
+    """Test thumbnail verification via ffprobe and mutagen fallback."""
 
     @patch("gm.youtube.ssh_run")
     def test_returns_true_when_video_stream_found(self, mock_ssh: MagicMock) -> None:
@@ -735,16 +735,34 @@ class TestVerifyThumbnailEmbedded:
         assert verify_thumbnail_embedded("/tmp/song.opus") is True
 
     @patch("gm.youtube.ssh_run")
-    def test_returns_false_when_no_video_stream(self, mock_ssh: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess(
-            [], 0, "audio\n", "",
-        )
+    def test_opus_falls_back_to_mutagen_check(self, mock_ssh: MagicMock) -> None:
+        """For opus files without a video stream, check metadata_block_picture."""
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe: no video
+            subprocess.CompletedProcess([], 0, "True\n", ""),  # mutagen: has picture
+        ]
+        assert verify_thumbnail_embedded("/tmp/song.opus") is True
+
+    @patch("gm.youtube.ssh_run")
+    def test_opus_returns_false_when_no_picture(self, mock_ssh: MagicMock) -> None:
+        """Opus file with no video stream and no metadata_block_picture."""
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe: no video
+            subprocess.CompletedProcess([], 0, "False\n", ""),  # mutagen: no picture
+        ]
         assert verify_thumbnail_embedded("/tmp/song.opus") is False
+
+    @patch("gm.youtube.ssh_run")
+    def test_mp3_no_mutagen_fallback(self, mock_ssh: MagicMock) -> None:
+        """Non-opus files don't use mutagen fallback."""
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "audio\n", "")
+        assert verify_thumbnail_embedded("/tmp/song.mp3") is False
+        mock_ssh.assert_called_once()  # only ffprobe, no mutagen
 
     @patch("gm.youtube.ssh_run")
     def test_returns_false_on_empty_output(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "")
-        assert verify_thumbnail_embedded("/tmp/song.opus") is False
+        assert verify_thumbnail_embedded("/tmp/song.mp3") is False
 
 
 @patch("gm.youtube._cleanup_stale_temp_dirs")
@@ -780,6 +798,7 @@ class TestHandleYoutubeThumbnailFailure:
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "False\n", ""),  # mutagen: no picture
             subprocess.CompletedProcess([], 0, "", ""),  # find loose thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
@@ -820,6 +839,7 @@ class TestHandleYoutubeThumbnailFailure:
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "False\n", ""),  # mutagen: no picture
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # loose thumbnail found
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
@@ -859,6 +879,7 @@ class TestHandleYoutubeThumbnailFailure:
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "False\n", ""),  # mutagen: no picture
             subprocess.CompletedProcess([], 0, "", ""),  # no loose thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
@@ -895,6 +916,7 @@ class TestHandleYoutubeThumbnailFailure:
             subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "False\n", ""),  # mutagen: no picture
             subprocess.CompletedProcess([], 0, "", ""),  # find loose thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
