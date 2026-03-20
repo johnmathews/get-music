@@ -14,6 +14,7 @@ from gm.youtube import (
     build_ytdlp_command,
     parse_ytdlp_metadata,
     extract_video_id,
+    reembed_thumbnail_ssh,
     update_ytdlp,
     verify_thumbnail_embedded,
     _cleanup_stale_temp_dirs,
@@ -893,6 +894,149 @@ class TestHandleYoutubeThumbnailFailure:
         cleanup_cmd = mock_ssh.call_args_list[-1][0][0]
         assert "rm -rf" in cleanup_cmd
         assert TEMP_DIR in cleanup_cmd
+
+
+@patch("gm.youtube._cleanup_stale_temp_dirs")
+@patch("gm.youtube.write_metadata_ssh")
+@patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
+class TestHandleYoutubePostVerification:
+    """Test post-verification of artwork after metadata rewrite."""
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.reembed_thumbnail_ssh", return_value=True)
+    @patch("gm.youtube.verify_thumbnail_embedded")
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_recovery_succeeds_when_post_check_fails(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_verify: MagicMock,
+        mock_reembed: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """When post-verification fails but re-embed succeeds, print warning and continue."""
+        # Pre-check passes, post-check fails
+        mock_verify.side_effect = [True, False]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="Song", title="Song",
+        )
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # mv thumbnail to cover
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_reembed.assert_called_once()
+        mock_record.assert_called_once()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.reembed_thumbnail_ssh", return_value=False)
+    @patch("gm.youtube.verify_thumbnail_embedded")
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_exits_when_recovery_fails(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_verify: MagicMock,
+        mock_reembed: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """When post-verification fails and re-embed also fails, exit with error."""
+        mock_verify.side_effect = [True, False]
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="Song", title="Song",
+        )
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # find thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # mv thumbnail to cover
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup on error)
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_record.assert_not_called()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.verify_thumbnail_embedded", return_value=True)
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_no_recovery_when_post_check_passes(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_verify: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """When post-verification passes, no recovery needed."""
+        mock_prompt.return_value = AudioMetadata(
+            artist="Artist", album="Song", title="Song",
+        )
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "uploader": "Artist", "title": "Song",
+            }), ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail (none)
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
+            subprocess.CompletedProcess([], 0, "", ""),  # mv audio
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        # verify_thumbnail_embedded called twice: pre-check and post-check
+        assert mock_verify.call_count == 2
+        mock_record.assert_called_once()
 
 
 class TestDetectYtdlpInstallMethod:

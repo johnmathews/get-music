@@ -250,11 +250,47 @@ def write_metadata(path: Path, meta: AudioMetadata) -> None:
         pass
 
 
-def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
+def reembed_thumbnail_ssh(audio_path: str, thumb_path: str) -> bool:
+    """Re-embed a thumbnail into an opus/ogg file on the LXC using mutagen.
+
+    ffmpeg cannot write picture streams into opus/ogg containers, so we
+    use mutagen (OggOpus + FLAC Picture) — the same approach yt-dlp uses.
+    Returns True on success.
+    """
+    ext = PurePosixPath(thumb_path).suffix.lower()
+    mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    mime = mime_map.get(ext, "image/jpeg")
+
+    script = (
+        "from mutagen.oggopus import OggOpus;"
+        "from mutagen.flac import Picture;"
+        "import base64;"
+        f"a=OggOpus({audio_path!r});"
+        "p=Picture();"
+        f"p.data=open({thumb_path!r},'rb').read();"
+        "p.type=3;"
+        f"p.mime={mime!r};"
+        "a['metadata_block_picture']=[base64.b64encode(p.write()).decode('ascii')];"
+        "a.save()"
+    )
+    result = ssh_run(f"python3 -c {shlex.quote(script)}")
+    if result.returncode != 0:
+        print(f"{E_WARN}{yellow('Thumbnail re-embed failed')}")
+        if result.stderr.strip():
+            print(f"  {dim(result.stderr.strip().splitlines()[-1])}")
+        return False
+    return True
+
+
+def write_metadata_ssh(dest: str, meta: AudioMetadata, *, thumb_file: str = "") -> None:
     """Write metadata tags into an audio file on the LXC using ffmpeg.
 
     Best-effort: failures are silently ignored since the file is already
     in place with yt-dlp's embedded metadata.
+
+    For opus/ogg files, uses ``-map 0:a`` (audio only) since ffmpeg cannot
+    mux picture streams into ogg containers, then re-embeds the thumbnail
+    via mutagen if *thumb_file* is provided.
     """
     fields = [
         ("artist", "artist"),
@@ -271,10 +307,14 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
         value = getattr(meta, attr, "")
         metadata_args.extend(["-metadata", f"{tag}={value}"])
 
+    ext = PurePosixPath(dest).suffix.lower()
+    is_opus = ext in (".opus", ".ogg")
+    map_arg = "0:a" if is_opus else "0"
+
     p = PurePosixPath(dest)
     tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
     ffmpeg_cmd = shlex.join(
-        ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
+        ["ffmpeg", "-y", "-i", dest, "-map", map_arg, "-c", "copy"]
         + metadata_args
         + [tmp]
     )
@@ -284,6 +324,11 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
         print(f"{E_ERROR}{yellow('Metadata rewrite failed — tags from yt-dlp may be stale')}")
         if result.stderr.strip():
             print(f"  {dim(result.stderr.strip().splitlines()[-1])}")
+        return
+
+    # For opus files, re-embed thumbnail after metadata rewrite (ffmpeg strips it)
+    if is_opus and thumb_file:
+        reembed_thumbnail_ssh(dest, thumb_file)
 
 
 def list_existing_artists(music_root: str = MUSIC_ROOT) -> list[str]:

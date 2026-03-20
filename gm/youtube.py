@@ -20,6 +20,7 @@ from gm.metadata import (
     normalize_date,
     prompt_duplicate_action,
     prompt_metadata,
+    reembed_thumbnail_ssh,
     write_metadata_ssh,
     YOUTUBE_ROOT,
 )
@@ -296,13 +297,30 @@ def handle_youtube(url: str) -> None:
     ssh_run(f"mv {quote_path(audio_file)} {quote_path(dest)}", check=True)
 
     # Write user-confirmed metadata into the audio file
-    write_metadata_ssh(dest, meta)
+    write_metadata_ssh(dest, meta, thumb_file=thumb_file)
 
-    # Embed thumbnail if available
+    # Save thumbnail as cover art in album directory
+    thumb_dest = ""
     if thumb_file:
         thumb_ext = PurePosixPath(thumb_file).suffix
         thumb_dest = str(PurePosixPath(dest_dir) / f"cover{thumb_ext}")
         ssh_run(f"mv {quote_path(thumb_file)} {quote_path(thumb_dest)}")
+
+    # Post-verification: ensure final file still has embedded artwork
+    if not verify_thumbnail_embedded(dest):
+        recovered = False
+        # Try re-embedding from cover file or loose thumbnail
+        cover_source = thumb_dest or thumb_file
+        if cover_source:
+            recovered = reembed_thumbnail_ssh(dest, cover_source)
+        if recovered:
+            print(f"{E_WARN}{bold_yellow('Artwork was re-embedded after metadata rewrite')}")
+        else:
+            ext = PurePosixPath(dest).suffix
+            print(f"{E_ERROR}{yellow('Final file has no embedded artwork')}")
+            print(f"  {dim(f'Audio format: {ext}  File: {PurePosixPath(dest).name}')}")
+            ssh_run(f"rm -rf {temp_dir}")
+            raise SystemExit(1)
 
     # Clean up temp directory
     ssh_run(f"rm -rf {temp_dir}")
