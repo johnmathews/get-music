@@ -909,20 +909,30 @@ class TestWriteMetadata:
 
 
 class TestWriteMetadataSsh:
-    """Test SSH-based metadata writing via ffmpeg."""
+    """Test SSH-based metadata writing."""
 
     @patch("gm.metadata.ssh_run")
-    def test_writes_metadata_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
+    def test_opus_uses_mutagen(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(artist="Artist", album="Song", title="Song")
         write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
 
         cmd = mock_ssh.call_args_list[0][0][0]
+        assert "python3 -c" in cmd
+        assert "OggOpus" in cmd
+        assert "'Artist'" in cmd
+        assert "'Song'" in cmd
+
+    @patch("gm.metadata.ssh_run")
+    def test_mp3_uses_ffmpeg(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(artist="Artist", album="Song", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.mp3", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
         assert "ffmpeg" in cmd
         assert "-metadata artist=Artist" in cmd
-        assert "-metadata album=Song" in cmd
-        assert "-metadata title=Song" in cmd
-        assert "-map 0:a" in cmd  # opus uses audio-only map
+        assert "-map 0" in cmd
         assert "-c copy" in cmd
 
     @patch("gm.metadata.ssh_run")
@@ -932,24 +942,53 @@ class TestWriteMetadataSsh:
         mock_ssh.assert_not_called()
 
     @patch("gm.metadata.ssh_run")
-    def test_cleans_up_on_failure(self, mock_ssh: MagicMock) -> None:
+    def test_ffmpeg_cleans_up_on_failure(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "error")
         meta = AudioMetadata(artist="Artist", album="Song")
-        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.mp3", meta)
 
         # First call is ffmpeg, second is rm cleanup
         assert mock_ssh.call_count == 2
         cleanup_cmd = mock_ssh.call_args_list[1][0][0]
         assert "rm -f" in cleanup_cmd
-        assert "Song.gm-tmp.opus" in cleanup_cmd
 
     @patch("gm.metadata.ssh_run")
-    def test_includes_all_fields(self, mock_ssh: MagicMock) -> None:
+    def test_opus_includes_all_fields(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(
             artist="A", album="B", title="C", genre="Rock", date="2024", track_number="5",
         )
         write_metadata_ssh("/mnt/nfs/music/A/B/C.opus", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
+        assert "'A'" in cmd  # artist
+        assert "'B'" in cmd  # album
+        assert "'C'" in cmd  # title
+        assert "'Rock'" in cmd  # genre
+        assert "'2024'" in cmd  # date
+        assert "'5'" in cmd  # tracknumber
+
+    @patch("gm.metadata.ssh_run")
+    def test_opus_clears_empty_fields(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(artist="Artist", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
+
+        cmd = mock_ssh.call_args_list[0][0][0]
+        assert "artist" in cmd
+        assert "title" in cmd
+        # Empty fields should be popped (shell quoting mangles inner quotes)
+        assert "a.pop(" in cmd
+        assert "genre" in cmd
+        assert "date" in cmd
+
+    @patch("gm.metadata.ssh_run")
+    def test_ffmpeg_includes_all_fields(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(
+            artist="A", album="B", title="C", genre="Rock", date="2024", track_number="5",
+        )
+        write_metadata_ssh("/mnt/nfs/music/A/B/C.mp3", meta)
 
         cmd = mock_ssh.call_args_list[0][0][0]
         assert "-metadata artist=A" in cmd
@@ -958,19 +997,6 @@ class TestWriteMetadataSsh:
         assert "-metadata genre=Rock" in cmd
         assert "-metadata date=2024" in cmd
         assert "-metadata track=5" in cmd
-
-    @patch("gm.metadata.ssh_run")
-    def test_clears_empty_fields_via_ffmpeg(self, mock_ssh: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
-        meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/Artist/Song/Song.opus", meta)
-
-        cmd = mock_ssh.call_args_list[0][0][0]
-        assert "-metadata artist=Artist" in cmd
-        assert "-metadata title=Song" in cmd
-        # Empty fields should be explicitly cleared
-        assert "-metadata genre=" in cmd
-        assert "-metadata date=" in cmd
 
 
 class TestReembedThumbnailSsh:
@@ -1008,59 +1034,42 @@ class TestReembedThumbnailSsh:
 
 
 class TestWriteMetadataSshOpus:
-    """Test opus-specific metadata rewrite path."""
+    """Test opus-specific metadata rewrite via mutagen."""
 
-    @patch("gm.metadata.reembed_thumbnail_ssh", return_value=True)
     @patch("gm.metadata.ssh_run")
-    def test_opus_uses_audio_only_map(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
+    def test_ogg_uses_mutagen(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/A/B/Song.opus", meta, thumb_file="/tmp/thumb.jpg")
+        write_metadata_ssh("/mnt/nfs/music/A/B/Song.ogg", meta)
         cmd = mock_ssh.call_args_list[0][0][0]
-        assert "-map 0:a" in cmd
+        assert "OggOpus" in cmd
+        assert "ffmpeg" not in cmd
 
-    @patch("gm.metadata.reembed_thumbnail_ssh", return_value=True)
     @patch("gm.metadata.ssh_run")
-    def test_opus_reembeds_thumbnail_after_rewrite(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
-        meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/A/B/Song.opus", meta, thumb_file="/tmp/thumb.jpg")
-        mock_reembed.assert_called_once_with("/mnt/nfs/music/A/B/Song.opus", "/tmp/thumb.jpg")
-
-    @patch("gm.metadata.reembed_thumbnail_ssh")
-    @patch("gm.metadata.ssh_run")
-    def test_opus_no_reembed_without_thumb_file(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
+    def test_opus_does_not_use_ffmpeg(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(artist="Artist", title="Song")
         write_metadata_ssh("/mnt/nfs/music/A/B/Song.opus", meta)
-        mock_reembed.assert_not_called()
-
-    @patch("gm.metadata.reembed_thumbnail_ssh")
-    @patch("gm.metadata.ssh_run")
-    def test_ogg_uses_audio_only_map(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
-        meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/A/B/Song.ogg", meta, thumb_file="/tmp/thumb.jpg")
         cmd = mock_ssh.call_args_list[0][0][0]
-        assert "-map 0:a" in cmd
+        assert "ffmpeg" not in cmd
+        assert "OggOpus" in cmd
 
-    @patch("gm.metadata.reembed_thumbnail_ssh")
     @patch("gm.metadata.ssh_run")
-    def test_mp3_uses_all_streams_map(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
-        meta = AudioMetadata(artist="Artist", title="Song")
-        write_metadata_ssh("/mnt/nfs/music/A/B/Song.mp3", meta, thumb_file="/tmp/thumb.jpg")
-        cmd = mock_ssh.call_args_list[0][0][0]
-        assert "-map 0 " in cmd  # -map 0 (not 0:a)
-        mock_reembed.assert_not_called()
-
-    @patch("gm.metadata.reembed_thumbnail_ssh")
-    @patch("gm.metadata.ssh_run")
-    def test_no_reembed_on_ffmpeg_failure(self, mock_ssh: MagicMock, mock_reembed: MagicMock) -> None:
+    def test_opus_failure_prints_warning(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "error")
         meta = AudioMetadata(artist="Artist", title="Song")
+        write_metadata_ssh("/mnt/nfs/music/A/B/Song.opus", meta)
+        # Single SSH call (mutagen), no rm cleanup needed
+        assert mock_ssh.call_count == 1
+
+    @patch("gm.metadata.ssh_run")
+    def test_thumb_file_ignored_for_opus(self, mock_ssh: MagicMock) -> None:
+        """thumb_file param is ignored since mutagen preserves existing artwork."""
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        meta = AudioMetadata(artist="Artist", title="Song")
         write_metadata_ssh("/mnt/nfs/music/A/B/Song.opus", meta, thumb_file="/tmp/thumb.jpg")
-        mock_reembed.assert_not_called()
+        # Only one SSH call — mutagen, no re-embed
+        assert mock_ssh.call_count == 1
 
 
 class TestNormalizedPrefixEnd:
