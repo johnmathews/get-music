@@ -316,12 +316,12 @@ def handle_youtube(url: str) -> None:
             dest = build_destination_path(meta, extension, video_id=video_id, music_root=YOUTUBE_ROOT)
             dest_dir = str(PurePosixPath(dest).parent)
 
+    # Write user-confirmed metadata while still in temp dir (before Navidrome sees it)
+    write_metadata_ssh(audio_file, meta, thumb_file=thumb_file)
+
     # Move file to final destination
     ssh_run(f"mkdir -p {quote_path(dest_dir)}", check=True)
     ssh_run(f"mv {quote_path(audio_file)} {quote_path(dest)}", check=True)
-
-    # Write user-confirmed metadata into the audio file
-    write_metadata_ssh(dest, meta, thumb_file=thumb_file)
 
     # Save thumbnail as cover art in album directory
     thumb_dest = ""

@@ -237,10 +237,10 @@ class TestHandleYoutube:
         mv_call_cmd = mock_ssh.call_args_list[7][0][0]
         assert "/mnt/nfs/music/youtube/Real Artist/Song/Song-[abc123].opus" in mv_call_cmd
 
-        # Verify metadata was written back to the audio file
+        # Verify metadata was written to the audio file (in temp dir, before move)
         mock_write_meta.assert_called_once()
         write_dest, write_meta = mock_write_meta.call_args[0]
-        assert "/mnt/nfs/music/youtube/Real Artist/Song/Song-[abc123].opus" == write_dest
+        assert f"{TEMP_DIR}/Song.opus" == write_dest
         assert write_meta.album == "Song"
 
         # Verify import was logged
