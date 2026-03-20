@@ -28,6 +28,17 @@ Two issues with YouTube downloads in opus format (the most common format):
 - If artwork is missing, attempts recovery via `reembed_thumbnail_ssh` from the cover file.
 - If recovery fails, prints diagnostics and exits with error instead of silently producing artwork-less files.
 
+### File discovery with spaces in filenames (`gm/youtube.py`)
+
+Discovered during live testing: `ls -1t /tmp/dir/*.opus` fails when the glob expands to a filename with spaces (e.g.,
+`Classical Morning - Relaxing, Uplifting Classical Music.opus`). The shell expands the glob but doesn't quote the result,
+so `ls` sees each word as a separate argument.
+
+- Replaced all `ls` glob patterns with `find ... -print0 | xargs -0 ls -1t` which handles spaces via null-delimited
+  output.
+- Split info.json discovery into `find` + `cat` so the path is properly quoted with `quote_path()`.
+- Also replaced thumbnail discovery `ls *.jpg *.png *.webp` with `find ... \( -name '*.jpg' -o -name '*.png' ... \)`.
+
 ## Key decision
 
 Using mutagen via SSH (`python3 -c '...'`) rather than trying to make ffmpeg work with opus thumbnails. This is the same
