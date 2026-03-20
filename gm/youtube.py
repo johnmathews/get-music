@@ -26,9 +26,22 @@ from gm.metadata import (
 from gm.history import ImportRecord, record_import, delete_import, find_by_video_id
 from gm.ssh import ssh_run, SSH_HOST, quote_path
 
+
 def _make_temp_dir() -> str:
     """Generate a unique temp directory path for a download."""
     return f"/tmp/gm-download-{uuid.uuid4().hex[:12]}"
+
+
+def verify_thumbnail_embedded(audio_file: str) -> bool:
+    """Check whether the audio file has an embedded thumbnail via ffprobe.
+
+    Returns True if ffprobe finds a video stream (thumbnail) in the file.
+    """
+    result = ssh_run(
+        f"ffprobe -v quiet -show_entries stream=codec_type -of csv=p=0 "
+        f"{quote_path(audio_file)}"
+    )
+    return "video" in result.stdout
 
 
 def _detect_ytdlp_install_method() -> str:
@@ -155,8 +168,14 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     )
 
 
+def _cleanup_stale_temp_dirs() -> None:
+    """Remove any orphaned gm-download temp dirs from prior interrupted runs."""
+    ssh_run("find /tmp -maxdepth 1 -name 'gm-download-*' -type d -mmin +30 -exec rm -rf {} + 2>/dev/null")
+
+
 def handle_youtube(url: str) -> None:
     """Download audio from YouTube URL via SSH + yt-dlp on LXC."""
+    _cleanup_stale_temp_dirs()
     print(f"{E_LINK}{bold_cyan('Downloading from YouTube:')} {url}")
 
     video_id = extract_video_id(url)
@@ -203,26 +222,54 @@ def handle_youtube(url: str) -> None:
             print(f"{E_ERROR}{yellow('Download failed')}")
             raise SystemExit(1)
 
-    # Read metadata from info.json
+    # Read metadata from info.json (use ls -1t to pick the newest if multiple exist)
     result = ssh_run(
-        f"cat {temp_dir}/*.info.json", check=True
+        f"cat \"$(ls -1t {temp_dir}/*.info.json | head -1)\"", check=True
     )
     defaults = parse_ytdlp_metadata(result.stdout)
 
-    # Find the downloaded audio file
+    # Find the downloaded audio file (ls -1t picks newest if multiple exist)
     audio_result = ssh_run(
-        f"find {temp_dir} -type f \\( -name '*.mp3' -o -name '*.opus' "
-        f"-o -name '*.m4a' -o -name '*.flac' -o -name '*.ogg' \\) | head -1",
+        f"ls -1t {temp_dir}/*.mp3 {temp_dir}/*.opus {temp_dir}/*.m4a "
+        f"{temp_dir}/*.flac {temp_dir}/*.ogg 2>/dev/null | head -1",
         check=True,
     )
     audio_file = audio_result.stdout.strip()
     if not audio_file:
         raise RuntimeError("No audio file found after download")
 
-    # Find thumbnail if present
+    # Verify thumbnail is embedded in the audio file
+    if not verify_thumbnail_embedded(audio_file):
+        # Diagnose why: check if thumbnail file exists loose in temp dir
+        thumb_check = ssh_run(
+            f"ls -1 {temp_dir}/*.jpg {temp_dir}/*.png "
+            f"{temp_dir}/*.webp 2>/dev/null | head -1"
+        )
+        loose_thumb = thumb_check.stdout.strip()
+
+        # Check info.json for thumbnail URLs
+        try:
+            info = json.loads(result.stdout)
+            has_thumb_url = bool(info.get("thumbnail") or info.get("thumbnails"))
+        except (json.JSONDecodeError, AttributeError):
+            has_thumb_url = False
+
+        ext = PurePosixPath(audio_file).suffix
+        print(f"{E_ERROR}{yellow('Thumbnail not embedded in audio file')}")
+        if not has_thumb_url:
+            print(f"  {dim('YouTube provided no thumbnail URL for this video')}")
+        elif loose_thumb:
+            print(f"  {dim(f'Thumbnail was downloaded ({PurePosixPath(loose_thumb).name}) but yt-dlp failed to embed it into {ext} file')}")
+        else:
+            print(f"  {dim(f'Thumbnail URL was available but yt-dlp failed to download it')}")
+        print(f"  {dim(f'Audio format: {ext}  File: {PurePosixPath(audio_file).name}')}")
+        ssh_run(f"rm -rf {temp_dir}")
+        raise SystemExit(1)
+
+    # Find thumbnail file if present (for cover art in album directory)
     thumb_result = ssh_run(
-        f"find {temp_dir} -type f \\( -name '*.jpg' -o -name '*.png' "
-        f"-o -name '*.webp' \\) | head -1"
+        f"ls -1 {temp_dir}/*.jpg {temp_dir}/*.png "
+        f"{temp_dir}/*.webp 2>/dev/null | head -1"
     )
     thumb_file = thumb_result.stdout.strip()
 

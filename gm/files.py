@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import shlex
 import subprocess
 import sys
 import time
@@ -76,8 +77,12 @@ def find_video_files(directory: Path, *, recursive: bool = False) -> list[Path]:
 
 
 def build_scp_command(local_path: Path, remote_path: str) -> list[str]:
-    """Build an scp command to transfer a file to the LXC."""
-    return ["scp", str(local_path), f"{SCP_HOST}:{remote_path}"]
+    """Build an scp command to transfer a file to the LXC.
+
+    The remote path is shell-quoted to handle spaces and special characters.
+    SCP interprets the remote portion through a shell, so quoting is required.
+    """
+    return ["scp", str(local_path), f"{SCP_HOST}:{shlex.quote(remote_path)}"]
 
 
 def scp_transfer(local_path: Path, remote_path: str) -> None:

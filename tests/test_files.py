@@ -104,7 +104,17 @@ class TestBuildScpCommand:
         )
         assert cmd[0] == "scp"
         assert str(Path("/local/song.mp3")) in cmd
+        # shlex.quote leaves safe paths unquoted
         assert f"{SCP_HOST}:/mnt/nfs/music/Artist/Album/Song.mp3" in cmd
+
+    def test_scp_command_quotes_spaces(self) -> None:
+        cmd = build_scp_command(
+            Path("/local/song.mp3"),
+            "/mnt/nfs/music/Led Zeppelin/IV/Black Dog.mp3",
+        )
+        # Remote path must be quoted so scp doesn't split on spaces
+        remote_arg = cmd[-1]
+        assert remote_arg == f"{SCP_HOST}:'/mnt/nfs/music/Led Zeppelin/IV/Black Dog.mp3'"
 
 
 class TestScpTransfer:

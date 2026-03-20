@@ -15,6 +15,8 @@ from gm.youtube import (
     parse_ytdlp_metadata,
     extract_video_id,
     update_ytdlp,
+    verify_thumbnail_embedded,
+    _cleanup_stale_temp_dirs,
     _detect_ytdlp_install_method,
     _make_temp_dir,
 )
@@ -164,6 +166,22 @@ class TestMakeTempDir:
         assert dir2.startswith("/tmp/gm-download-")
 
 
+class TestCleanupStaleTempDirs:
+    """Test orphaned temp directory cleanup."""
+
+    @patch("gm.youtube.ssh_run")
+    def test_runs_cleanup_command(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
+        _cleanup_stale_temp_dirs()
+        mock_ssh.assert_called_once()
+        cmd = mock_ssh.call_args[0][0]
+        assert "gm-download-" in cmd
+        assert "-mmin +30" in cmd
+        assert "rm -rf" in cmd
+
+
+@patch("gm.youtube._cleanup_stale_temp_dirs")
+@patch("gm.youtube.verify_thumbnail_embedded", return_value=True)
 @patch("gm.youtube.write_metadata_ssh")
 @patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
 class TestHandleYoutube:
@@ -185,6 +203,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
 
@@ -248,6 +268,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
@@ -296,6 +318,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         from gm.history import ImportRecord
 
@@ -329,6 +353,8 @@ class TestHandleYoutube:
         mock_update: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -364,6 +390,8 @@ class TestHandleYoutube:
         mock_update: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -408,6 +436,8 @@ class TestHandleYoutube:
         mock_update: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -441,6 +471,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -473,6 +505,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -516,6 +550,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         """Early video_id dup found, user overwrites — download proceeds."""
         from gm.history import ImportRecord
@@ -562,6 +598,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         """No early dup, but dest exists after download — user skips."""
         mock_ssh.side_effect = [
@@ -601,6 +639,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
@@ -641,6 +681,8 @@ class TestHandleYoutube:
         mock_record: MagicMock,
         mock_temp_dir: MagicMock,
         mock_write_meta: MagicMock,
+        mock_verify_thumb: MagicMock,
+        mock_cleanup: MagicMock,
     ) -> None:
         first_meta = AudioMetadata(
             artist="Artist", album="Song", title="Song"
@@ -672,6 +714,185 @@ class TestHandleYoutube:
         assert record.title == "New-Song"
         assert record.album == "New-Song"
         assert "New-Song" in record.destination
+
+
+class TestVerifyThumbnailEmbedded:
+    """Test ffprobe-based thumbnail verification."""
+
+    @patch("gm.youtube.ssh_run")
+    def test_returns_true_when_video_stream_found(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess(
+            [], 0, "audio\nvideo\n", "",
+        )
+        assert verify_thumbnail_embedded("/tmp/song.opus") is True
+
+    @patch("gm.youtube.ssh_run")
+    def test_returns_false_when_no_video_stream(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess(
+            [], 0, "audio\n", "",
+        )
+        assert verify_thumbnail_embedded("/tmp/song.opus") is False
+
+    @patch("gm.youtube.ssh_run")
+    def test_returns_false_on_empty_output(self, mock_ssh: MagicMock) -> None:
+        mock_ssh.return_value = subprocess.CompletedProcess([], 1, "", "")
+        assert verify_thumbnail_embedded("/tmp/song.opus") is False
+
+
+@patch("gm.youtube._cleanup_stale_temp_dirs")
+@patch("gm.youtube.write_metadata_ssh")
+@patch("gm.youtube._make_temp_dir", return_value=TEMP_DIR)
+class TestHandleYoutubeThumbnailFailure:
+    """Test thumbnail verification failure paths in handle_youtube."""
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_fails_when_no_thumbnail_url(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """Fail with diagnostic when YouTube provides no thumbnail URL."""
+        info_json = json.dumps({"uploader": "Artist", "title": "Song"})
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "", ""),  # find loose thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_prompt.assert_not_called()
+        mock_record.assert_not_called()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_fails_when_thumbnail_downloaded_but_not_embedded(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """Fail with diagnostic when thumbnail exists on disk but wasn't embedded."""
+        info_json = json.dumps({
+            "uploader": "Artist", "title": "Song",
+            "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+        })
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # loose thumbnail found
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_prompt.assert_not_called()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_fails_when_thumbnail_url_available_but_not_downloaded(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """Fail with diagnostic when thumbnail URL exists but file wasn't downloaded."""
+        info_json = json.dumps({
+            "uploader": "Artist", "title": "Song",
+            "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+        })
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "", ""),  # no loose thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        mock_prompt.assert_not_called()
+
+    @patch("gm.youtube.record_import")
+    @patch("gm.youtube.check_destination_exists", return_value=False)
+    @patch("gm.youtube.check_video_id_exists", return_value="")
+    @patch("gm.youtube.find_by_video_id", return_value=[])
+    @patch("gm.youtube.ssh_run")
+    @patch("gm.youtube.prompt_metadata")
+    def test_cleans_up_temp_dir_on_thumbnail_failure(
+        self,
+        mock_prompt: MagicMock,
+        mock_ssh: MagicMock,
+        mock_find_vid: MagicMock,
+        mock_check_vid: MagicMock,
+        mock_check_dest: MagicMock,
+        mock_record: MagicMock,
+        mock_temp_dir: MagicMock,
+        mock_write_meta: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """Temp directory is cleaned up when thumbnail verification fails."""
+        info_json = json.dumps({"uploader": "Artist", "title": "Song"})
+        mock_ssh.side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
+            subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
+            subprocess.CompletedProcess([], 0, info_json, ""),  # cat info.json
+            subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
+            subprocess.CompletedProcess([], 0, "audio\n", ""),  # ffprobe (no video stream)
+            subprocess.CompletedProcess([], 0, "", ""),  # find loose thumbnail
+            subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
+        ]
+
+        with pytest.raises(SystemExit):
+            handle_youtube("https://www.youtube.com/watch?v=abc123")
+
+        cleanup_cmd = mock_ssh.call_args_list[-1][0][0]
+        assert "rm -rf" in cleanup_cmd
+        assert TEMP_DIR in cleanup_cmd
 
 
 class TestDetectYtdlpInstallMethod:

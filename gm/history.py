@@ -52,8 +52,20 @@ class ImportRecord:
     genre: str = ""
 
 
+_conn_cache: sqlite3.Connection | None = None
+_conn_cache_path: Path | None = None
+
+
 def _get_connection() -> sqlite3.Connection:
-    """Open (and initialize if needed) the import database."""
+    """Open (and initialize if needed) the import database.
+
+    Caches the connection to avoid repeated schema setup on every call.
+    """
+    global _conn_cache, _conn_cache_path
+
+    if _conn_cache is not None and _conn_cache_path == DB_PATH:
+        return _conn_cache
+
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute(_CREATE_TABLE)
@@ -65,6 +77,8 @@ def _get_connection() -> sqlite3.Connection:
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
+    _conn_cache = conn
+    _conn_cache_path = DB_PATH
     return conn
 
 
@@ -73,25 +87,22 @@ def record_import(record: ImportRecord) -> None:
     if not record.timestamp:
         record.timestamp = datetime.now(timezone.utc).isoformat()
     conn = _get_connection()
-    try:
-        conn.execute(
-            "INSERT INTO imports (timestamp, source, artist, album, title, "
-            "destination, file_hash, video_id, genre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                record.timestamp,
-                record.source,
-                record.artist,
-                record.album,
-                record.title,
-                record.destination,
-                record.file_hash,
-                record.video_id,
-                record.genre,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    conn.execute(
+        "INSERT INTO imports (timestamp, source, artist, album, title, "
+        "destination, file_hash, video_id, genre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            record.timestamp,
+            record.source,
+            record.artist,
+            record.album,
+            record.title,
+            record.destination,
+            record.file_hash,
+            record.video_id,
+            record.genre,
+        ),
+    )
+    conn.commit()
 
 
 def find_by_video_id(video_id: str) -> list[ImportRecord]:
@@ -99,15 +110,12 @@ def find_by_video_id(video_id: str) -> list[ImportRecord]:
     if not video_id:
         return []
     conn = _get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id, genre FROM imports WHERE video_id = ?",
-            (video_id,),
-        ).fetchall()
-        return [_row_to_record(r) for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT timestamp, source, artist, album, title, destination, "
+        "file_hash, video_id, genre FROM imports WHERE video_id = ?",
+        (video_id,),
+    ).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def find_by_hash(file_hash: str) -> list[ImportRecord]:
@@ -115,15 +123,12 @@ def find_by_hash(file_hash: str) -> list[ImportRecord]:
     if not file_hash:
         return []
     conn = _get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id, genre FROM imports WHERE file_hash = ?",
-            (file_hash,),
-        ).fetchall()
-        return [_row_to_record(r) for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT timestamp, source, artist, album, title, destination, "
+        "file_hash, video_id, genre FROM imports WHERE file_hash = ?",
+        (file_hash,),
+    ).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def delete_import(destination: str) -> None:
@@ -131,24 +136,18 @@ def delete_import(destination: str) -> None:
     if not destination:
         return
     conn = _get_connection()
-    try:
-        conn.execute("DELETE FROM imports WHERE destination = ?", (destination,))
-        conn.commit()
-    finally:
-        conn.close()
+    conn.execute("DELETE FROM imports WHERE destination = ?", (destination,))
+    conn.commit()
 
 
 def all_imports() -> list[ImportRecord]:
     """Return all import records."""
     conn = _get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id, genre FROM imports ORDER BY id"
-        ).fetchall()
-        return [_row_to_record(r) for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT timestamp, source, artist, album, title, destination, "
+        "file_hash, video_id, genre FROM imports ORDER BY id"
+    ).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def find_by_destination(dest: str) -> list[ImportRecord]:
@@ -156,29 +155,23 @@ def find_by_destination(dest: str) -> list[ImportRecord]:
     if not dest:
         return []
     conn = _get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id, genre FROM imports WHERE destination = ?",
-            (dest,),
-        ).fetchall()
-        return [_row_to_record(r) for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT timestamp, source, artist, album, title, destination, "
+        "file_hash, video_id, genre FROM imports WHERE destination = ?",
+        (dest,),
+    ).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def recent_imports(limit: int = 20) -> list[ImportRecord]:
     """Return recent imports, newest first."""
     conn = _get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT timestamp, source, artist, album, title, destination, "
-            "file_hash, video_id, genre FROM imports ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [_row_to_record(r) for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT timestamp, source, artist, album, title, destination, "
+        "file_hash, video_id, genre FROM imports ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def compute_file_hash(path: Path) -> str:

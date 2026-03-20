@@ -274,7 +274,7 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata) -> None:
     p = PurePosixPath(dest)
     tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
     ffmpeg_cmd = shlex.join(
-        ["ffmpeg", "-y", "-i", dest, "-map", "0:a", "-c", "copy"]
+        ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
         + metadata_args
         + [tmp]
     )
@@ -418,15 +418,15 @@ def prompt_metadata(
 ) -> AudioMetadata:
     """Prompt the user to confirm or override metadata fields.
 
-    When *single* is True (YouTube tracks), the album prompt is skipped and
-    album is automatically set equal to the title.
+    When *single* is True (YouTube tracks), the album defaults to the title
+    but is still prompted so the user can override it.
     Type '<' at any prompt to go back to the previous field.
     """
     print(f"\n{bold('Metadata')} {dim('(press Enter to accept default, < to go back):')}")
 
     artist = title = album = date = ""
     step = 0
-    # Steps: 0=artist, 1=title, 2=album (skipped if single), 3=date
+    # Steps: 0=artist, 1=title, 2=album, 3=date
     while True:
         if step == 0:
             val = _prompt_field("Artist", defaults.artist)
@@ -441,13 +441,10 @@ def prompt_metadata(
                 step = 0
                 continue
             title = val  # type: ignore[assignment]
-            if single:
-                album = title
-                step = 3
-            else:
-                step = 2
+            step = 2
         elif step == 2:
-            val = _prompt_field("Album", title)
+            album_default = title
+            val = _prompt_field("Album", album_default)
             if val is _BACK:
                 step = 1
                 continue
@@ -457,7 +454,7 @@ def prompt_metadata(
         elif step == 3:
             val = _prompt_field("Date", defaults.date)
             if val is _BACK:
-                step = 2 if not single else 1
+                step = 2
                 continue
             date = val  # type: ignore[assignment]
             break
@@ -536,7 +533,11 @@ def prompt_title_only(
     album = batch.album or defaults.album
     date = batch.date or defaults.date
 
-    title = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
+    while True:
+        val = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
+        if val is not _BACK:
+            title: str = val  # type: ignore[assignment]
+            break
 
     return AudioMetadata(
         artist=artist,

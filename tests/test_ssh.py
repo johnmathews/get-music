@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from gm.ssh import ssh_run, SSH_HOST, quote_path
+from gm.ssh import ssh_run, SSH_HOST, quote_path, _SSH_OPTIONS
 
 
 class TestSshRun:
@@ -19,9 +19,11 @@ class TestSshRun:
             args=[], returncode=0, stdout="output", stderr=""
         )
         result = ssh_run("ls /tmp")
+        expected_cmd = ["ssh"] + _SSH_OPTIONS + [SSH_HOST, "ls /tmp"]
         mock_run.assert_called_once_with(
-            ["ssh", SSH_HOST, "ls /tmp"],
+            expected_cmd,
             capture_output=True, text=True, check=False,
+            timeout=300,
         )
         assert result.stdout == "output"
 
@@ -33,19 +35,46 @@ class TestSshRun:
         with pytest.raises(RuntimeError, match="error msg"):
             ssh_run("bad command", check=True)
 
-
     @patch("gm.ssh.subprocess.run")
-    def test_stream_passes_stderr_to_terminal(self, mock_run: MagicMock) -> None:
+    def test_stream_mode(self, mock_run: MagicMock) -> None:
         mock_run.return_value = subprocess.CompletedProcess(
-            args=["ssh", SSH_HOST, "yt-dlp url"], returncode=0, stdout="", stderr=""
+            args=["ssh", SSH_HOST, "yt-dlp url"], returncode=0,
+            stdout="", stderr="",
         )
         result = ssh_run("yt-dlp url", stream=True)
+        expected_cmd = ["ssh"] + _SSH_OPTIONS + [SSH_HOST, "yt-dlp url"]
         mock_run.assert_called_once_with(
-            ["ssh", SSH_HOST, "yt-dlp url"],
-            stdout=subprocess.DEVNULL, text=True, check=False,
+            expected_cmd,
+            text=True, check=False,
+            timeout=600,
         )
         assert result.stdout == ""
-        assert result.stderr == ""
+
+    @patch("gm.ssh.subprocess.run")
+    def test_includes_connection_multiplexing(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        ssh_run("echo test")
+        cmd = mock_run.call_args[0][0]
+        assert "-o" in cmd
+        assert "ControlMaster=auto" in cmd
+        assert "ConnectTimeout=10" in cmd
+
+    @patch("gm.ssh.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ssh", timeout=300))
+    def test_handles_timeout(self, mock_run: MagicMock) -> None:
+        result = ssh_run("slow command")
+        assert result.returncode == 1
+        assert "timed out" in result.stderr
+
+    @patch("gm.ssh.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ssh", timeout=300))
+    def test_timeout_with_check_raises(self, mock_run: MagicMock) -> None:
+        with pytest.raises(RuntimeError, match="timed out"):
+            ssh_run("slow command", check=True)
+
+    @patch("gm.ssh.subprocess.run")
+    def test_custom_timeout(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        ssh_run("fast command", timeout=30)
+        assert mock_run.call_args[1]["timeout"] == 30
 
 
 class TestQuotePath:

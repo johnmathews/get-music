@@ -26,6 +26,9 @@ from gm.history import (
 def _use_tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point DB_PATH to a temp directory for every test."""
     monkeypatch.setattr(history, "DB_PATH", tmp_path / "imports.db")
+    # Reset connection cache so each test gets a fresh DB
+    monkeypatch.setattr(history, "_conn_cache", None)
+    monkeypatch.setattr(history, "_conn_cache_path", None)
 
 
 class TestRecordAndFind:

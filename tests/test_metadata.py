@@ -506,12 +506,13 @@ class TestPromptMetadata:
         assert result.album == "My Song"
 
 
+@patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])
 class TestPromptMetadataSingle:
-    """Test prompt_metadata in single mode (album = title)."""
+    """Test prompt_metadata in single mode (album defaults to title)."""
 
-    @patch("builtins.input", side_effect=["", "", ""])
-    def test_single_sets_album_to_title(self, mock_input: object, *_mocks: object) -> None:
+    @patch("builtins.input", side_effect=["", "", "", ""])
+    def test_single_defaults_album_to_title(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(artist="Artist", title="My Song", date="2024")
         result = prompt_metadata(defaults, single=True)
         assert result.artist == "Artist"
@@ -519,21 +520,29 @@ class TestPromptMetadataSingle:
         assert result.title == "My Song"
         assert result.date == "2024"
 
-    @patch("builtins.input", side_effect=["", "Custom Title", ""])
-    def test_single_album_follows_overridden_title(self, mock_input: object, *_mocks: object) -> None:
+    @patch("builtins.input", side_effect=["", "Custom Title", "", ""])
+    def test_single_album_defaults_to_overridden_title(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(artist="Artist", title="Default Title")
         result = prompt_metadata(defaults, single=True)
-        assert result.album == "Custom Title"
         assert result.title == "Custom Title"
+        assert result.album == "Custom Title"
 
-    @patch("builtins.input", side_effect=["", "", ""])
-    def test_single_skips_album_prompt(self, mock_input: object, *_mocks: object) -> None:
-        """Single mode prompts 3 fields (artist, title, date), not 4."""
+    @patch("builtins.input", side_effect=["", "", "Custom Album", ""])
+    def test_single_album_can_be_overridden(self, mock_input: object, *_mocks: object) -> None:
+        """User can type a different album instead of accepting the title default."""
+        defaults = AudioMetadata(artist="Artist", title="Song")
+        result = prompt_metadata(defaults, single=True)
+        assert result.title == "Song"
+        assert result.album == "Custom Album"
+
+    @patch("builtins.input", side_effect=["", "", "", ""])
+    def test_single_prompts_four_fields(self, mock_input: object, *_mocks: object) -> None:
+        """Single mode prompts 4 fields (artist, title, album, date)."""
         defaults = AudioMetadata(artist="Artist", title="Song", date="2024")
         prompt_metadata(defaults, single=True)
-        assert mock_input.call_count == 3
+        assert mock_input.call_count == 4
 
-    @patch("builtins.input", side_effect=["", "", ""])
+    @patch("builtins.input", side_effect=["", "", "", ""])
     def test_single_preserves_description(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
             artist="Artist", title="Song",
@@ -912,7 +921,7 @@ class TestWriteMetadataSsh:
         assert "-metadata artist=Artist" in cmd
         assert "-metadata album=Song" in cmd
         assert "-metadata title=Song" in cmd
-        assert "-map 0:a" in cmd
+        assert "-map 0" in cmd
         assert "-c copy" in cmd
 
     @patch("gm.metadata.ssh_run")
@@ -1111,6 +1120,15 @@ class TestTitleStrippingBatch:
         result = prompt_title_only(defaults, batch, track_number=1)
         assert result.title == "My Song"
 
+    @patch("builtins.input", side_effect=["<", "Actual Title"])
+    def test_prompt_title_only_back_reprompts(self, mock_input: MagicMock) -> None:
+        """Typing '<' at title-only prompt re-prompts instead of setting sentinel."""
+        defaults = AudioMetadata(title="Default")
+        batch = AudioMetadata(artist="Artist", album="Album")
+        result = prompt_title_only(defaults, batch, track_number=1)
+        assert result.title == "Actual Title"
+        assert mock_input.call_count == 2
+
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
 @patch("gm.metadata.list_existing_artists", return_value=[])
@@ -1151,7 +1169,7 @@ class TestGoBack:
         result = prompt_metadata(defaults)
         assert result.artist == "Artist"
 
-    @patch("builtins.input", side_effect=["Artist", "<", "Fixed", "", "2024"])
+    @patch("builtins.input", side_effect=["Artist", "<", "Fixed", "", "", "2024"])
     def test_back_from_title_single_mode(
         self, mock_input: MagicMock, *_mocks: object,
     ) -> None:
@@ -1159,7 +1177,7 @@ class TestGoBack:
         defaults = AudioMetadata(artist="Artist", title="Song")
         result = prompt_metadata(defaults, single=True)
         assert result.artist == "Fixed"
-        assert result.album == result.title  # single mode sets album=title
+        assert result.album == result.title  # album defaults to title
 
 
 @patch("gm.metadata.list_existing_albums", return_value=[])
