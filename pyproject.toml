@@ -9,7 +9,7 @@ dependencies = ["mutagen>=1.47"]
 gm = "gm.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "coverage>=7.0"]
+dev = ["pytest>=9.0.3", "coverage>=7.0"]
 
 [build-system]
 requires = ["hatchling"]
