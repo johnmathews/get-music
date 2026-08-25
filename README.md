@@ -39,7 +39,7 @@ Automatic track numbering.
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.13+
 - `ffmpeg` (local, for video-to-audio extraction)
 - SSH access to the Navidrome server configured as the `music` host
 - `yt-dlp` and `ffmpeg` on the server
