@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
-import readline  # noqa: F401 — enables arrow-key editing in input() prompts
 import re
+import readline  # noqa: F401 — enables arrow-key editing in input() prompts
 import sys
 from enum import Enum, auto
 from pathlib import Path
 
+from gm import history, metadata
+from gm.files import handle_directory, handle_file
 from gm.ui import (
-    E_BROOM, E_CHECK, E_ERROR,
-    bold, bold_cyan, bold_red, cyan, dim, green, yellow,
+    E_BROOM,
+    E_CHECK,
+    E_ERROR,
+    bold,
+    bold_cyan,
+    bold_red,
+    cyan,
+    dim,
+    green,
+    yellow,
 )
 from gm.youtube import handle_youtube
-from gm.files import handle_file, handle_directory
 
 
 class InputType(Enum):
@@ -22,9 +31,7 @@ class InputType(Enum):
     DIRECTORY = auto()
 
 
-_YOUTUBE_RE = re.compile(
-    r"^https?://(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/"
-)
+_YOUTUBE_RE = re.compile(r"^https?://(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/")
 
 
 def detect_input_type(arg: str) -> InputType:
@@ -49,17 +56,17 @@ def detect_input_type(arg: str) -> InputType:
 def get_help_text() -> str:
     """Return the help/usage text."""
     return f"""\
-{bold_cyan('gm')} - get music for Navidrome
+{bold_cyan("gm")} - get music for Navidrome
 
-{bold('Usage:')}
-  {green('gm <youtube-url>')}   Download audio from YouTube to the music library
-  {green('gm <file>')}          Process and transfer a local audio/video file
-  {green('gm <directory>')}     Process all audio/video files in a directory
-  {green('gm log [N]')}         Show recent imports (default: 20)
-  {green('gm prune')}           Remove stale log entries for deleted files
-  {green('gm help')}            Show this help message
+{bold("Usage:")}
+  {green("gm <youtube-url>")}   Download audio from YouTube to the music library
+  {green("gm <file>")}          Process and transfer a local audio/video file
+  {green("gm <directory>")}     Process all audio/video files in a directory
+  {green("gm log [N]")}         Show recent imports (default: 20)
+  {green("gm prune")}           Remove stale log entries for deleted files
+  {green("gm help")}            Show this help message
 
-{bold('Examples:')}
+{bold("Examples:")}
   gm https://www.youtube.com/watch?v=dQw4w9WgXcQ
   gm ~/Downloads/song.mp3
   gm ~/Downloads/album/
@@ -76,23 +83,18 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(0)
 
     if args[0] == "log":
-        from gm.history import recent_imports, format_log
-
         limit = int(args[1]) if len(args) > 1 else 20
-        records = recent_imports(limit=limit)
-        print(format_log(records))
+        records = history.recent_imports(limit=limit)
+        print(history.format_log(records))
         return
 
     if args[0] == "prune":
-        from gm.history import all_imports, delete_import
-        from gm.metadata import check_destination_exists
-
-        records = all_imports()
+        records = history.all_imports()
         pruned = 0
         for record in records:
-            if record.destination and not check_destination_exists(record.destination):
+            if record.destination and not metadata.check_destination_exists(record.destination):
                 print(f"  {E_BROOM}{yellow('Stale:')} {dim(record.destination)}")
-                delete_import(record.destination)
+                history.delete_import(record.destination)
                 pruned += 1
         print(f"{E_CHECK}Pruned {bold(str(pruned))} stale record(s) out of {bold(str(len(records)))} total.")
         return

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import shlex
+import sqlite3
 import subprocess
 import sys
 import time
@@ -11,11 +13,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
 
-from gm.ui import (
-    E_CHECK, E_DONE, E_ERROR, E_FOLDER, E_MUSIC, E_SCISSORS, E_SEARCH,
-    E_SEND, E_SKIP, E_WARN, E_WRITE,
-    bold, bold_cyan, bold_green, bold_red, cyan, green, yellow,
-)
+import mutagen
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import APIC, ID3, ID3NoHeaderError
+from mutagen.mp4 import MP4, MP4Cover
+
+from gm.history import ImportRecord, compute_file_hash, delete_import, find_by_hash, find_by_video_id, record_import
 from gm.metadata import (
     AudioMetadata,
     build_destination_path,
@@ -28,8 +31,26 @@ from gm.metadata import (
     read_metadata,
     write_metadata,
 )
-from gm.history import ImportRecord, record_import, compute_file_hash, delete_import, find_by_hash, find_by_video_id
-from gm.ssh import ssh_run, quote_path
+from gm.ssh import quote_path, ssh_run
+from gm.ui import (
+    E_CHECK,
+    E_DONE,
+    E_ERROR,
+    E_FOLDER,
+    E_MUSIC,
+    E_SCISSORS,
+    E_SEARCH,
+    E_SEND,
+    E_SKIP,
+    E_WARN,
+    E_WRITE,
+    bold,
+    bold_green,
+    bold_red,
+    cyan,
+    green,
+    yellow,
+)
 
 SCP_HOST = "music"
 
@@ -101,10 +122,15 @@ def ssh_mkdir(remote_dir: str) -> None:
 def detect_audio_codec(video_path: Path) -> str:
     """Detect the audio codec of a file using ffprobe."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "a:0",
-        "-show_entries", "stream=codec_name",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         str(video_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -119,10 +145,15 @@ def extract_thumbnail(video_path: Path) -> Path | None:
     """
     thumb_path = video_path.with_suffix(".jpg")
     cmd = [
-        "ffmpeg", "-i", str(video_path),
-        "-map", "0:v:t",
-        "-q:v", "1",
-        "-y", str(thumb_path),
+        "ffmpeg",
+        "-i",
+        str(video_path),
+        "-map",
+        "0:v:t",
+        "-q:v",
+        "1",
+        "-y",
+        str(thumb_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode == 0 and thumb_path.exists():
@@ -161,7 +192,12 @@ def fetch_youtube_thumbnail(video_id: str, output_path: Path) -> Path | None:
 
 
 def embed_cover_art(audio_path: Path, image_path: Path) -> None:
-    """Embed cover art into an audio file. Best-effort, silent on failure."""
+    """Embed cover art into an audio file.
+
+    Best-effort: if mutagen cannot read or write the file a warning is
+    printed and the audio is transferred without embedded artwork (the
+    separate ``cover.jpg`` is still copied to the album directory).
+    """
     if not image_path.exists():
         return
     try:
@@ -179,12 +215,11 @@ def embed_cover_art(audio_path: Path, image_path: Path) -> None:
             _embed_vorbis(audio_path, image_data, mime)
         elif suffix == ".flac":
             _embed_flac(audio_path, image_data, mime)
-    except Exception:
-        pass
+    except (mutagen.MutagenError, OSError) as exc:
+        print(f"{E_WARN}{yellow('Could not embed cover art:')} {exc}")
 
 
 def _embed_mp3(audio_path: Path, image_data: bytes, mime: str) -> None:
-    from mutagen.id3 import ID3, APIC, ID3NoHeaderError
     try:
         tags = ID3(str(audio_path))
     except ID3NoHeaderError:
@@ -195,7 +230,6 @@ def _embed_mp3(audio_path: Path, image_data: bytes, mime: str) -> None:
 
 
 def _embed_mp4(audio_path: Path, image_data: bytes, mime: str) -> None:
-    from mutagen.mp4 import MP4, MP4Cover
     audio = MP4(str(audio_path))
     fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
     audio["covr"] = [MP4Cover(image_data, imageformat=fmt)]
@@ -203,8 +237,6 @@ def _embed_mp4(audio_path: Path, image_data: bytes, mime: str) -> None:
 
 
 def _embed_vorbis(audio_path: Path, image_data: bytes, mime: str) -> None:
-    import mutagen
-    from mutagen.flac import Picture
     audio = mutagen.File(str(audio_path))
     if audio is None:
         return
@@ -219,7 +251,6 @@ def _embed_vorbis(audio_path: Path, image_data: bytes, mime: str) -> None:
 
 
 def _embed_flac(audio_path: Path, image_data: bytes, mime: str) -> None:
-    from mutagen.flac import FLAC, Picture
     audio = FLAC(str(audio_path))
     pic = Picture()
     pic.type = 3  # Cover (front)
@@ -234,9 +265,13 @@ def _embed_flac(audio_path: Path, image_data: bytes, mime: str) -> None:
 def get_media_duration(path: Path) -> float:
     """Get media duration in seconds using ffprobe. Returns 0.0 on failure."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -255,15 +290,15 @@ def run_ffmpeg(cmd: list[str], duration: float = 0.0) -> None:
     Appends progress flags to the command, reads ffmpeg's key=value progress
     output, and renders a compact progress line to stderr.
     """
-    cmd = cmd + ["-v", "error", "-progress", "pipe:1", "-nostats"]
+    cmd = [*cmd, "-v", "error", "-progress", "pipe:1", "-nostats"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert proc.stdout is not None  # for type checker
 
     stats: dict[str, str] = {}
     start = time.monotonic()
 
-    for line in proc.stdout:
-        line = line.strip()
+    for raw_line in proc.stdout:
+        line = raw_line.strip()
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
@@ -295,10 +330,8 @@ def run_ffmpeg(cmd: list[str], duration: float = 0.0) -> None:
 
         total_size = stats.get("total_size", "N/A")
         if total_size != "N/A":
-            try:
+            with contextlib.suppress(ValueError):
                 parts.append(f"{int(total_size) // 1024}kB")
-            except ValueError:
-                pass
 
         bitrate = stats.get("bitrate")
         if bitrate and bitrate != "N/A":
@@ -336,9 +369,14 @@ def extract_audio_from_video(video_path: Path) -> tuple[Path, Path | None]:
     output_path = video_path.with_suffix(ext)
     duration = get_media_duration(video_path)
     cmd = [
-        "ffmpeg", "-i", str(video_path),
-        "-vn", "-c:a", "copy",
-        "-y", str(output_path),
+        "ffmpeg",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-c:a",
+        "copy",
+        "-y",
+        str(output_path),
     ]
     run_ffmpeg(cmd, duration)
     return output_path, thumbnail
@@ -469,17 +507,26 @@ def handle_file(
         thumbnail.unlink()
 
     # Log the import
-    record_import(ImportRecord(
-        source=str(path),
-        artist=meta.artist,
-        album=meta.album,
-        title=meta.title,
-        destination=dest,
-        file_hash=file_hash,
-        video_id=video_id,
-    ))
+    record_import(
+        ImportRecord(
+            source=str(path),
+            artist=meta.artist,
+            album=meta.album,
+            title=meta.title,
+            destination=dest,
+            file_hash=file_hash,
+            video_id=video_id,
+        )
+    )
 
     print(f"{E_CHECK}{green('Transferred:')} {cyan(dest)}")
+
+
+# Errors that mean "this file failed, move on to the next one" in batch mode:
+# scp/ssh/ffmpeg failures (RuntimeError), local I/O and missing binaries
+# (OSError), subprocess timeouts, and import-log database errors.  Anything
+# else (e.g. EOFError from a closed stdin, KeyboardInterrupt) aborts the batch.
+_PER_FILE_ERRORS = (RuntimeError, OSError, subprocess.SubprocessError, sqlite3.Error)
 
 
 def handle_directory(path: Path) -> None:
@@ -511,7 +558,7 @@ def handle_directory(path: Path) -> None:
         track = i if same_album else 0
         try:
             handle_file(file, batch_meta=batch, track_number=track, _from_directory=True)
-        except Exception as exc:
+        except _PER_FILE_ERRORS as exc:
             print(f"  {E_ERROR}{bold_red('Error:')} {exc}")
             failures.append((file, str(exc)))
 

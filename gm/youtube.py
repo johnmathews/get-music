@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import uuid
 from pathlib import PurePosixPath
 
-from gm.ui import (
-    E_CHECK, E_DONE, E_ERROR, E_LINK, E_SEARCH, E_SKIP, E_WARN,
-    bold, bold_cyan, bold_green, bold_yellow, cyan, dim, yellow,
-)
+from gm.history import ImportRecord, delete_import, find_by_video_id, record_import
 from gm.metadata import (
+    YOUTUBE_ROOT,
     AudioMetadata,
     build_destination_path,
     check_destination_exists,
@@ -22,10 +21,24 @@ from gm.metadata import (
     prompt_metadata,
     reembed_thumbnail_ssh,
     write_metadata_ssh,
-    YOUTUBE_ROOT,
 )
-from gm.history import ImportRecord, record_import, delete_import, find_by_video_id
-from gm.ssh import ssh_run, SSH_HOST, quote_path
+from gm.ssh import SSH_HOST, quote_path, ssh_run
+from gm.ui import (
+    E_CHECK,
+    E_DONE,
+    E_ERROR,
+    E_LINK,
+    E_SEARCH,
+    E_SKIP,
+    E_WARN,
+    bold,
+    bold_cyan,
+    bold_green,
+    bold_yellow,
+    cyan,
+    dim,
+    yellow,
+)
 
 
 def _make_temp_dir() -> str:
@@ -40,10 +53,7 @@ def verify_thumbnail_embedded(audio_file: str) -> bool:
     files, also checks for a metadata_block_picture tag via mutagen, since
     mutagen embeds thumbnails as FLAC Picture metadata (not a video stream).
     """
-    result = ssh_run(
-        f"ffprobe -v quiet -show_entries stream=codec_type -of csv=p=0 "
-        f"{quote_path(audio_file)}"
-    )
+    result = ssh_run(f"ffprobe -v quiet -show_entries stream=codec_type -of csv=p=0 {quote_path(audio_file)}")
     if "video" in result.stdout:
         return True
 
@@ -51,7 +61,7 @@ def verify_thumbnail_embedded(audio_file: str) -> bool:
     ext = PurePosixPath(audio_file).suffix.lower()
     if ext in (".opus", ".ogg"):
         check = ssh_run(
-            f"python3 -c \"from mutagen.oggopus import OggOpus;"
+            f'python3 -c "from mutagen.oggopus import OggOpus;'
             f"print('metadata_block_picture' in OggOpus({audio_file!r}))\""
         )
         return check.stdout.strip() == "True"
@@ -123,7 +133,6 @@ def update_ytdlp() -> bool:
 
 def extract_video_id(url: str) -> str:
     """Extract the video ID from a YouTube URL."""
-    import re
     # youtu.be/ID
     match = re.search(r"youtu\.be/([a-zA-Z0-9_-]+)", url)
     if match:
@@ -145,11 +154,13 @@ def build_ytdlp_command(url: str, temp_dir: str) -> list[str]:
         "yt-dlp",
         "--no-playlist",
         "--extract-audio",
-        "--audio-quality", "0",
+        "--audio-quality",
+        "0",
         "--embed-metadata",
         "--embed-thumbnail",
         "--write-info-json",
-        "--output", f"{temp_dir}/%(title)s.%(ext)s",
+        "--output",
+        f"{temp_dir}/%(title)s.%(ext)s",
         url,
     ]
 
@@ -170,9 +181,7 @@ def parse_ytdlp_metadata(json_str: str) -> AudioMetadata:
     description = data.get("description", "") or ""
     track_number = str(data.get("track_number", "")) if data.get("track_number") else ""
 
-    date = normalize_date(
-        data.get("release_date", "") or data.get("upload_date", "") or ""
-    )
+    date = normalize_date(data.get("release_date", "") or data.get("upload_date", "") or "")
 
     return AudioMetadata(
         artist=humanize_name(artist),
@@ -239,8 +248,7 @@ def handle_youtube(url: str) -> None:
 
     # Read metadata from info.json
     result = ssh_run(
-        f"find {quote_path(temp_dir)} -maxdepth 1 -name '*.info.json' -print0"
-        f" | xargs -0 ls -1t | head -1",
+        f"find {quote_path(temp_dir)} -maxdepth 1 -name '*.info.json' -print0 | xargs -0 ls -1t | head -1",
     )
     info_json_file = result.stdout.strip()
     if not info_json_file:
@@ -283,18 +291,17 @@ def handle_youtube(url: str) -> None:
         if not has_thumb_url:
             print(f"  {dim('YouTube provided no thumbnail URL for this video')}")
         elif loose_thumb:
-            print(f"  {dim(f'Thumbnail was downloaded ({PurePosixPath(loose_thumb).name}) but yt-dlp failed to embed it into {ext} file')}")
+            thumb_name = PurePosixPath(loose_thumb).name
+            print(f"  {dim(f'Thumbnail was downloaded ({thumb_name}) but yt-dlp failed to embed it into {ext} file')}")
         else:
-            print(f"  {dim(f'Thumbnail URL was available but yt-dlp failed to download it')}")
+            print(f"  {dim('Thumbnail URL was available but yt-dlp failed to download it')}")
         print(f"  {dim(f'Audio format: {ext}  File: {PurePosixPath(audio_file).name}')}")
         ssh_run(f"rm -rf {temp_dir}")
         raise SystemExit(1)
 
     # Find thumbnail file if present (for cover art in album directory)
     thumb_result = ssh_run(
-        f"find {quote_path(temp_dir)} -maxdepth 1"
-        f" \\( -name '*.jpg' -o -name '*.png' -o -name '*.webp' \\)"
-        f" -print -quit"
+        f"find {quote_path(temp_dir)} -maxdepth 1 \\( -name '*.jpg' -o -name '*.png' -o -name '*.webp' \\) -print -quit"
     )
     thumb_file = thumb_result.stdout.strip()
 
@@ -350,13 +357,15 @@ def handle_youtube(url: str) -> None:
     ssh_run(f"rm -rf {temp_dir}")
 
     # Log the import
-    record_import(ImportRecord(
-        source=url,
-        artist=meta.artist,
-        album=meta.album,
-        title=meta.title,
-        destination=dest,
-        video_id=video_id,
-    ))
+    record_import(
+        ImportRecord(
+            source=url,
+            artist=meta.artist,
+            album=meta.album,
+            title=meta.title,
+            destination=dest,
+            video_id=video_id,
+        )
+    )
 
     print(f"{E_DONE}{bold_green('Done!')} Saved to: {cyan(dest)}")

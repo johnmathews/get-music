@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gm.ssh import ssh_run, SSH_HOST, quote_path, _SSH_OPTIONS
+from gm.ssh import _SSH_OPTIONS, SSH_HOST, quote_path, ssh_run
 
 
 class TestSshRun:
@@ -15,37 +15,38 @@ class TestSshRun:
 
     @patch("gm.ssh.subprocess.run")
     def test_runs_command_via_ssh(self, mock_run: MagicMock) -> None:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="output", stderr=""
-        )
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="output", stderr="")
         result = ssh_run("ls /tmp")
-        expected_cmd = ["ssh"] + _SSH_OPTIONS + [SSH_HOST, "ls /tmp"]
+        expected_cmd = ["ssh", *_SSH_OPTIONS, SSH_HOST, "ls /tmp"]
         mock_run.assert_called_once_with(
             expected_cmd,
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
             timeout=300,
         )
         assert result.stdout == "output"
 
     @patch("gm.ssh.subprocess.run")
     def test_raises_on_failure(self, mock_run: MagicMock) -> None:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="error msg"
-        )
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="error msg")
         with pytest.raises(RuntimeError, match="error msg"):
             ssh_run("bad command", check=True)
 
     @patch("gm.ssh.subprocess.run")
     def test_stream_mode(self, mock_run: MagicMock) -> None:
         mock_run.return_value = subprocess.CompletedProcess(
-            args=["ssh", SSH_HOST, "yt-dlp url"], returncode=0,
-            stdout="", stderr="",
+            args=["ssh", SSH_HOST, "yt-dlp url"],
+            returncode=0,
+            stdout="",
+            stderr="",
         )
         result = ssh_run("yt-dlp url", stream=True)
-        expected_cmd = ["ssh"] + _SSH_OPTIONS + [SSH_HOST, "yt-dlp url"]
+        expected_cmd = ["ssh", *_SSH_OPTIONS, SSH_HOST, "yt-dlp url"]
         mock_run.assert_called_once_with(
             expected_cmd,
-            text=True, check=False,
+            text=True,
+            check=False,
             timeout=600,
         )
         assert result.stdout == ""

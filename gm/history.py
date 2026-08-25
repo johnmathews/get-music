@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gm.ui import bold, cyan, dim
@@ -52,8 +53,15 @@ class ImportRecord:
     genre: str = ""
 
 
-_conn_cache: sqlite3.Connection | None = None
-_conn_cache_path: Path | None = None
+@dataclass
+class _ConnectionCache:
+    """Single-entry cache of the open database connection and its path."""
+
+    conn: sqlite3.Connection | None = None
+    path: Path | None = None
+
+
+_cache = _ConnectionCache()
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -61,31 +69,28 @@ def _get_connection() -> sqlite3.Connection:
 
     Caches the connection to avoid repeated schema setup on every call.
     """
-    global _conn_cache, _conn_cache_path
-
-    if _conn_cache is not None and _conn_cache_path == DB_PATH:
-        return _conn_cache
+    if _cache.conn is not None and _cache.path == DB_PATH:
+        return _cache.conn
 
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute(_CREATE_TABLE)
     for migration in _MIGRATIONS:
-        try:
+        # Column/index already exists on databases created after the migration was added
+        with contextlib.suppress(sqlite3.OperationalError):
             conn.execute(migration)
-        except sqlite3.OperationalError:
-            pass  # Column/index already exists
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
-    _conn_cache = conn
-    _conn_cache_path = DB_PATH
+    _cache.conn = conn
+    _cache.path = DB_PATH
     return conn
 
 
 def record_import(record: ImportRecord) -> None:
     """Insert an import record into the database."""
     if not record.timestamp:
-        record.timestamp = datetime.now(timezone.utc).isoformat()
+        record.timestamp = datetime.now(UTC).isoformat()
     conn = _get_connection()
     conn.execute(
         "INSERT INTO imports (timestamp, source, artist, album, title, "
@@ -200,7 +205,6 @@ def format_log(records: list[ImportRecord]) -> str:
             parts.append(dim(f"[{r.video_id}]"))
         lines.append("  ".join(parts))
     return "\n".join(lines)
-
 
 
 def _row_to_record(row: tuple[str, ...]) -> ImportRecord:

@@ -2,49 +2,64 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import patch, MagicMock, call
 import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import mutagen
 import pytest
 
 from gm.files import (
     CODEC_EXTENSION_MAP,
-    _BAR_WIDTH,
-    _MIN_THUMBNAIL_SIZE,
+    SCP_HOST,
+    build_scp_command,
+    detect_audio_codec,
     embed_cover_art,
+    extract_audio_from_video,
+    extract_thumbnail,
     fetch_youtube_thumbnail,
     find_audio_files,
     find_video_files,
     get_media_duration,
-    is_video_file,
-    is_audio_file,
-    build_scp_command,
-    detect_audio_codec,
-    extract_thumbnail,
-    extract_audio_from_video,
-    handle_file,
     handle_directory,
+    handle_file,
+    is_audio_file,
+    is_video_file,
     run_ffmpeg,
     scp_transfer,
     ssh_mkdir,
-    SCP_HOST,
 )
 
 
 class TestFileDetection:
     """Test audio/video file type detection."""
 
-    @pytest.mark.parametrize("name", [
-        "song.mp3", "track.flac", "audio.ogg", "music.m4a",
-        "sound.wav", "tune.opus", "audio.aac", "song.wma",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "song.mp3",
+            "track.flac",
+            "audio.ogg",
+            "music.m4a",
+            "sound.wav",
+            "tune.opus",
+            "audio.aac",
+            "song.wma",
+        ],
+    )
     def test_detects_audio_files(self, name: str) -> None:
         assert is_audio_file(Path(name))
 
-    @pytest.mark.parametrize("name", [
-        "video.mp4", "clip.mkv", "movie.avi", "vid.webm", "clip.mov",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "video.mp4",
+            "clip.mkv",
+            "movie.avi",
+            "vid.webm",
+            "clip.mov",
+        ],
+    )
     def test_detects_video_files(self, name: str) -> None:
         assert is_video_file(Path(name))
 
@@ -156,7 +171,7 @@ class TestDetectAudioCodec:
     @patch("gm.files.subprocess.run")
     def test_detects_known_codecs(self, mock_run: MagicMock, tmp_path: Path) -> None:
         video = tmp_path / "video.mp4"
-        for codec, ext in CODEC_EXTENSION_MAP.items():
+        for codec in CODEC_EXTENSION_MAP:
             mock_run.return_value = subprocess.CompletedProcess([], 0, f"{codec}\n", "")
             result = detect_audio_codec(video)
             assert result == codec
@@ -272,6 +287,7 @@ class TestFetchYoutubeThumbnail:
     @patch("gm.files.urllib.request.urlretrieve")
     def test_returns_none_on_network_failure(self, mock_retrieve: MagicMock, tmp_path: Path) -> None:
         import urllib.error
+
         thumb = tmp_path / "cover.jpg"
         mock_retrieve.side_effect = urllib.error.URLError("network error")
 
@@ -359,15 +375,28 @@ class TestEmbedCoverArt:
         # Should not raise
         embed_cover_art(audio, missing)
 
-    @patch("gm.files._embed_mp3", side_effect=Exception("mutagen broke"))
-    def test_handles_mutagen_failure(self, mock_embed: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.files._embed_mp3", side_effect=mutagen.MutagenError("mutagen broke"))
+    def test_handles_mutagen_failure(
+        self, mock_embed: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         audio = tmp_path / "song.mp3"
         audio.write_bytes(b"\x00")
         image = tmp_path / "cover.jpg"
         image.write_bytes(b"\xff\xd8")
 
-        # Should not raise
+        # Should not raise, but should tell the user
         embed_cover_art(audio, image)
+        assert "Could not embed cover art" in capsys.readouterr().out
+
+    @patch("gm.files._embed_mp3", side_effect=PermissionError("read-only"))
+    def test_handles_os_error(self, mock_embed: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        audio = tmp_path / "song.mp3"
+        audio.write_bytes(b"\x00")
+        image = tmp_path / "cover.jpg"
+        image.write_bytes(b"\xff\xd8")
+
+        embed_cover_art(audio, image)
+        assert "Could not embed cover art" in capsys.readouterr().out
 
     def test_ignores_unsupported_format(self, tmp_path: Path) -> None:
         audio = tmp_path / "song.wav"
@@ -404,10 +433,14 @@ class TestGetMediaDuration:
 class TestRunFfmpeg:
     """Test ffmpeg progress bar runner."""
 
-    def _make_progress_output(self, *, out_time_us: str = "5000000",
-                              total_size: str = "3498000",
-                              bitrate: str = "135.8kb/s",
-                              speed: str = "74.7x") -> str:
+    def _make_progress_output(
+        self,
+        *,
+        out_time_us: str = "5000000",
+        total_size: str = "3498000",
+        bitrate: str = "135.8kb/s",
+        speed: str = "74.7x",
+    ) -> str:
         """Build ffmpeg -progress style output."""
         lines = [
             f"out_time_us={out_time_us}",
@@ -426,6 +459,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_successful_run(self, mock_popen: MagicMock) -> None:
         import io
+
         output = self._make_progress_output()
         proc = MagicMock()
         proc.stdout = io.StringIO(output)
@@ -446,6 +480,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_raises_on_failure(self, mock_popen: MagicMock) -> None:
         import io
+
         proc = MagicMock()
         proc.stdout = io.StringIO("")
         proc.stderr = io.StringIO("codec not found")
@@ -459,6 +494,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_zero_duration_shows_stats_only(self, mock_popen: MagicMock) -> None:
         import io
+
         output = self._make_progress_output()
         proc = MagicMock()
         proc.stdout = io.StringIO(output)
@@ -474,6 +510,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_handles_lines_without_equals(self, mock_popen: MagicMock) -> None:
         import io
+
         output = "some garbage line\nout_time_us=5000000\nprogress=end\n"
         proc = MagicMock()
         proc.stdout = io.StringIO(output)
@@ -487,6 +524,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_handles_invalid_out_time_us(self, mock_popen: MagicMock) -> None:
         import io
+
         lines = [
             "out_time_us=not_a_number",
             "total_size=3498000",
@@ -504,6 +542,7 @@ class TestRunFfmpeg:
     @patch("gm.files.subprocess.Popen")
     def test_handles_invalid_total_size(self, mock_popen: MagicMock) -> None:
         import io
+
         lines = [
             "out_time_us=5000000",
             "total_size=not_a_number",
@@ -526,7 +565,9 @@ class TestExtractAudio:
     @patch("gm.files.detect_audio_codec", return_value="opus")
     @patch("gm.files.run_ffmpeg")
     @patch("gm.files.get_media_duration", return_value=120.0)
-    def test_extracts_audio_opus(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    def test_extracts_audio_opus(
+        self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path
+    ) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         thumb = tmp_path / "video.jpg"
@@ -547,7 +588,9 @@ class TestExtractAudio:
     @patch("gm.files.detect_audio_codec", return_value="aac")
     @patch("gm.files.run_ffmpeg")
     @patch("gm.files.get_media_duration", return_value=60.0)
-    def test_extracts_audio_aac(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    def test_extracts_audio_aac(
+        self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path
+    ) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         mock_thumb.return_value = None
@@ -560,19 +603,23 @@ class TestExtractAudio:
     @patch("gm.files.detect_audio_codec", return_value="unknown_codec")
     @patch("gm.files.run_ffmpeg")
     @patch("gm.files.get_media_duration", return_value=0.0)
-    def test_falls_back_to_opus_for_unknown_codec(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    def test_falls_back_to_opus_for_unknown_codec(
+        self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path
+    ) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         mock_thumb.return_value = None
 
-        audio, thumbnail = extract_audio_from_video(video)
+        audio, _thumbnail = extract_audio_from_video(video)
         assert audio.suffix == ".opus"
 
     @patch("gm.files.extract_thumbnail", return_value=None)
     @patch("gm.files.detect_audio_codec", return_value="opus")
     @patch("gm.files.run_ffmpeg", side_effect=RuntimeError("ffmpeg failed (exit 1): codec error"))
     @patch("gm.files.get_media_duration", return_value=0.0)
-    def test_raises_on_failure(self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path) -> None:
+    def test_raises_on_failure(
+        self, mock_dur: MagicMock, mock_ffmpeg: MagicMock, mock_codec: MagicMock, mock_thumb: MagicMock, tmp_path: Path
+    ) -> None:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         with pytest.raises(RuntimeError, match="ffmpeg failed"):
@@ -602,7 +649,6 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -654,7 +700,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_embed_art: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -710,7 +755,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -760,7 +804,6 @@ class TestHandleFile:
         mock_fetch_yt: MagicMock,
         mock_embed_art: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -782,7 +825,8 @@ class TestHandleFile:
 
         # YouTube thumbnail fetched as fallback
         mock_fetch_yt.assert_called_once_with(
-            "dQw4w9WgXcQ", f.with_suffix(".jpg"),
+            "dQw4w9WgXcQ",
+            f.with_suffix(".jpg"),
         )
         # Thumbnail embedded and transferred
         mock_embed_art.assert_called_once_with(extracted, yt_thumb)
@@ -815,11 +859,10 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
 
         f = tmp_path / "song.mp3"
         f.write_bytes(b"\x00")
@@ -834,7 +877,9 @@ class TestHandleFile:
         mock_scp.assert_not_called()
         mock_record.assert_not_called()
 
-    def test_skips_unsupported_file(self, mock_write_meta: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_skips_unsupported_file(
+        self, mock_write_meta: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         f = tmp_path / "readme.txt"
         f.write_bytes(b"\x00")
         handle_file(f)
@@ -860,7 +905,6 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -896,7 +940,6 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -938,7 +981,6 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -976,7 +1018,6 @@ class TestHandleFile:
         mock_check_dest: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -997,7 +1038,6 @@ class TestHandleFile:
         record = mock_record.call_args[0][0]
         assert record.title == "New-Song"
         assert record.album == "Other-Album"
-
 
     @patch("gm.files.fetch_youtube_thumbnail", return_value=None)
     @patch("gm.files.record_import")
@@ -1020,7 +1060,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -1058,7 +1097,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         from gm.metadata import AudioMetadata
@@ -1099,7 +1137,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -1149,11 +1186,10 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
 
         f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp4"
         f.write_bytes(b"\x00")
@@ -1200,7 +1236,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         """Video file: hash can only be checked late (after extraction), user skips."""
@@ -1252,7 +1287,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         """Video file: late hash check finds stale record — prune and continue."""
@@ -1304,11 +1338,10 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
 
         f = tmp_path / "Artist-Song-[dQw4w9WgXcQ].mp3"
         f.write_bytes(b"\x00")
@@ -1347,11 +1380,10 @@ class TestHandleFile:
         mock_find_hash: MagicMock,
         mock_record: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
 
         f = tmp_path / "song.mp3"
         f.write_bytes(b"\x00")
@@ -1394,7 +1426,6 @@ class TestHandleFile:
         mock_record: MagicMock,
         mock_fetch_yt: MagicMock,
         mock_write_meta: MagicMock,
-
         tmp_path: Path,
     ) -> None:
         """When both video_id and hash match, the video_id hit is used."""

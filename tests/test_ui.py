@@ -62,6 +62,7 @@ class TestColorEnabled:
 
     def test_bold_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -74,6 +75,7 @@ class TestColorEnabled:
 
     def test_dim_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -85,6 +87,7 @@ class TestColorEnabled:
 
     def test_cyan_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -96,6 +99,7 @@ class TestColorEnabled:
 
     def test_green_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -106,6 +110,7 @@ class TestColorEnabled:
 
     def test_yellow_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -116,6 +121,7 @@ class TestColorEnabled:
 
     def test_red_wraps(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -126,6 +132,7 @@ class TestColorEnabled:
 
     def test_bold_cyan_combines(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -137,6 +144,7 @@ class TestColorEnabled:
 
     def test_bold_green_combines(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -148,6 +156,7 @@ class TestColorEnabled:
 
     def test_bold_yellow_combines(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:
@@ -159,6 +168,7 @@ class TestColorEnabled:
 
     def test_bold_red_combines(self, monkeypatch: object) -> None:
         import pytest
+
         mp = pytest.MonkeyPatch()
         mp.setattr(ui, "_COLOR", True)
         try:

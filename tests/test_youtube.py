@@ -4,24 +4,22 @@ from __future__ import annotations
 
 import json
 import subprocess
-from unittest.mock import patch, call, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gm.metadata import AudioMetadata
 from gm.youtube import (
-    handle_youtube,
-    build_ytdlp_command,
-    parse_ytdlp_metadata,
-    extract_video_id,
-    reembed_thumbnail_ssh,
-    update_ytdlp,
-    verify_thumbnail_embedded,
     _cleanup_stale_temp_dirs,
     _detect_ytdlp_install_method,
     _make_temp_dir,
+    build_ytdlp_command,
+    extract_video_id,
+    handle_youtube,
+    parse_ytdlp_metadata,
+    update_ytdlp,
+    verify_thumbnail_embedded,
 )
-from gm.ssh import SSH_HOST
 
 TEMP_DIR = "/tmp/gm-download-test123"
 
@@ -213,18 +211,25 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Channel", "title": "Song", "artist": "Real Artist",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Channel",
+                        "title": "Song",
+                        "artist": "Real Artist",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
             subprocess.CompletedProcess([], 0, "", ""),  # mv audio
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Real Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Real Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -270,8 +275,8 @@ class TestHandleYoutube:
         mock_verify_thumb: MagicMock,
         mock_cleanup: MagicMock,
     ) -> None:
-        from gm.metadata import AudioMetadata
         from gm.history import ImportRecord
+        from gm.metadata import AudioMetadata
 
         stale_dest = "/mnt/nfs/music/youtube/Artist/Song/Song-[abc123].opus"
         mock_find_vid.return_value = [ImportRecord(destination=stale_dest)]
@@ -281,18 +286,24 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
             subprocess.CompletedProcess([], 0, "", ""),  # mv audio
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -401,18 +412,24 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp succeeds
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
             subprocess.CompletedProcess([], 0, "", ""),  # mv audio
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -479,15 +496,21 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Channel", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Channel",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, "\n", ""),  # find audio — empty
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Channel", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Channel", album="Song", title="Song")
 
         with pytest.raises(RuntimeError, match="No audio file found"):
             handle_youtube("https://www.youtube.com/watch?v=abc123")
@@ -515,9 +538,17 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
@@ -525,9 +556,7 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mv thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -567,18 +596,24 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
             subprocess.CompletedProcess([], 0, "", ""),  # mv audio
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -611,16 +646,22 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp (cleanup on skip)
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -652,18 +693,24 @@ class TestHandleYoutube:
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
             subprocess.CompletedProcess([], 0, "", ""),  # mv audio
             subprocess.CompletedProcess([], 0, "", ""),  # rm -rf temp
         ]
-        mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
+        mock_prompt.return_value = AudioMetadata(artist="Artist", album="Song", title="Song")
 
         handle_youtube("https://www.youtube.com/watch?v=abc123")
 
@@ -691,21 +738,25 @@ class TestHandleYoutube:
         mock_verify_thumb: MagicMock,
         mock_cleanup: MagicMock,
     ) -> None:
-        first_meta = AudioMetadata(
-            artist="Artist", album="Song", title="Song"
-        )
-        renamed_meta = AudioMetadata(
-            artist="Artist", album="New-Song", title="New-Song"
-        )
+        first_meta = AudioMetadata(artist="Artist", album="Song", title="Song")
+        renamed_meta = AudioMetadata(artist="Artist", album="New-Song", title="New-Song")
         mock_prompt.side_effect = [first_meta, renamed_meta]
 
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
@@ -730,7 +781,10 @@ class TestVerifyThumbnailEmbedded:
     @patch("gm.youtube.ssh_run")
     def test_returns_true_when_video_stream_found(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess(
-            [], 0, "audio\nvideo\n", "",
+            [],
+            0,
+            "audio\nvideo\n",
+            "",
         )
         assert verify_thumbnail_embedded("/tmp/song.opus") is True
 
@@ -828,10 +882,13 @@ class TestHandleYoutubeThumbnailFailure:
         mock_cleanup: MagicMock,
     ) -> None:
         """Fail with diagnostic when thumbnail exists on disk but wasn't embedded."""
-        info_json = json.dumps({
-            "uploader": "Artist", "title": "Song",
-            "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-        })
+        info_json = json.dumps(
+            {
+                "uploader": "Artist",
+                "title": "Song",
+                "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+            }
+        )
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
@@ -868,10 +925,13 @@ class TestHandleYoutubeThumbnailFailure:
         mock_cleanup: MagicMock,
     ) -> None:
         """Fail with diagnostic when thumbnail URL exists but file wasn't downloaded."""
-        info_json = json.dumps({
-            "uploader": "Artist", "title": "Song",
-            "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-        })
+        info_json = json.dumps(
+            {
+                "uploader": "Artist",
+                "title": "Song",
+                "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+            }
+        )
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
@@ -961,15 +1021,25 @@ class TestHandleYoutubePostVerification:
         # Pre-check passes, post-check fails
         mock_verify.side_effect = [True, False]
         mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song",
+            artist="Artist",
+            album="Song",
+            title="Song",
         )
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
@@ -1008,15 +1078,25 @@ class TestHandleYoutubePostVerification:
         """When post-verification fails and re-embed also fails, exit with error."""
         mock_verify.side_effect = [True, False]
         mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song",
+            artist="Artist",
+            album="Song",
+            title="Song",
         )
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.jpg\n", ""),  # find thumbnail
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest
@@ -1052,15 +1132,25 @@ class TestHandleYoutubePostVerification:
     ) -> None:
         """When post-verification passes, no recovery needed."""
         mock_prompt.return_value = AudioMetadata(
-            artist="Artist", album="Song", title="Song",
+            artist="Artist",
+            album="Song",
+            title="Song",
         )
         mock_ssh.side_effect = [
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir -p temp
             subprocess.CompletedProcess([], 0, "", ""),  # yt-dlp
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.info.json\n", ""),  # find info.json
-            subprocess.CompletedProcess([], 0, json.dumps({
-                "uploader": "Artist", "title": "Song",
-            }), ""),  # cat info.json
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "uploader": "Artist",
+                        "title": "Song",
+                    }
+                ),
+                "",
+            ),  # cat info.json
             subprocess.CompletedProcess([], 0, f"{TEMP_DIR}/Song.opus\n", ""),  # find audio
             subprocess.CompletedProcess([], 0, "", ""),  # find thumbnail (none)
             subprocess.CompletedProcess([], 0, "", ""),  # mkdir dest

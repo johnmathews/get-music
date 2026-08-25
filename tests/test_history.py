@@ -2,45 +2,52 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 import gm.history as history
 from gm.history import (
     ImportRecord,
-    record_import,
-    find_by_video_id,
-    find_by_hash,
-    find_by_destination,
-    recent_imports,
-    compute_file_hash,
-    format_log,
-    delete_import,
     all_imports,
+    compute_file_hash,
+    delete_import,
+    find_by_destination,
+    find_by_hash,
+    find_by_video_id,
+    format_log,
+    recent_imports,
+    record_import,
 )
 
 
 @pytest.fixture(autouse=True)
-def _use_tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _use_tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Point DB_PATH to a temp directory for every test."""
     monkeypatch.setattr(history, "DB_PATH", tmp_path / "imports.db")
-    # Reset connection cache so each test gets a fresh DB
-    monkeypatch.setattr(history, "_conn_cache", None)
-    monkeypatch.setattr(history, "_conn_cache_path", None)
+    # Reset connection cache so each test gets a fresh DB, and close it afterwards
+    cache = history._ConnectionCache()
+    monkeypatch.setattr(history, "_cache", cache)
+    yield
+    if cache.conn is not None:
+        cache.conn.close()
 
 
 class TestRecordAndFind:
     """Test recording and querying imports."""
 
     def test_record_and_find_by_video_id(self) -> None:
-        record_import(ImportRecord(
-            source="https://youtube.com/watch?v=abc123",
-            artist="Artist", album="Album", title="Song",
-            destination="/mnt/nfs/music/Artist/Album/Song-[abc123].opus",
-            video_id="abc123",
-        ))
+        record_import(
+            ImportRecord(
+                source="https://youtube.com/watch?v=abc123",
+                artist="Artist",
+                album="Album",
+                title="Song",
+                destination="/mnt/nfs/music/Artist/Album/Song-[abc123].opus",
+                video_id="abc123",
+            )
+        )
         results = find_by_video_id("abc123")
         assert len(results) == 1
         assert results[0].artist == "Artist"
@@ -53,12 +60,16 @@ class TestRecordAndFind:
         assert find_by_video_id("nonexistent") == []
 
     def test_record_and_find_by_hash(self) -> None:
-        record_import(ImportRecord(
-            source="/local/song.mp3",
-            artist="Artist", album="Album", title="Song",
-            destination="/mnt/nfs/music/Artist/Album/Song.mp3",
-            file_hash="abc123hash",
-        ))
+        record_import(
+            ImportRecord(
+                source="/local/song.mp3",
+                artist="Artist",
+                album="Album",
+                title="Song",
+                destination="/mnt/nfs/music/Artist/Album/Song.mp3",
+                file_hash="abc123hash",
+            )
+        )
         results = find_by_hash("abc123hash")
         assert len(results) == 1
         assert results[0].file_hash == "abc123hash"
@@ -68,9 +79,12 @@ class TestRecordAndFind:
 
     def test_record_and_find_by_destination(self) -> None:
         dest = "/mnt/nfs/music/Artist/Album/Song.mp3"
-        record_import(ImportRecord(
-            source="/local/song.mp3", destination=dest,
-        ))
+        record_import(
+            ImportRecord(
+                source="/local/song.mp3",
+                destination=dest,
+            )
+        )
         results = find_by_destination(dest)
         assert len(results) == 1
         assert results[0].destination == dest
@@ -115,16 +129,18 @@ class TestAllImports:
         assert all_imports() == []
 
 
-
 class TestRecentImports:
     """Test recent imports query."""
 
     def test_returns_newest_first(self) -> None:
         for i in range(3):
-            record_import(ImportRecord(
-                timestamp=f"2024-01-0{i + 1}T00:00:00",
-                source=f"source-{i}", title=f"Song-{i}",
-            ))
+            record_import(
+                ImportRecord(
+                    timestamp=f"2024-01-0{i + 1}T00:00:00",
+                    source=f"source-{i}",
+                    title=f"Song-{i}",
+                )
+            )
         results = recent_imports(limit=3)
         assert len(results) == 3
         assert results[0].title == "Song-2"
@@ -169,7 +185,9 @@ class TestFormatLog:
         records = [
             ImportRecord(
                 timestamp="2024-01-15T10:30:00+00:00",
-                artist="Artist", album="Album", title="Song",
+                artist="Artist",
+                album="Album",
+                title="Song",
                 video_id="abc123",
             ),
         ]
@@ -184,7 +202,8 @@ class TestFormatLog:
         records = [
             ImportRecord(
                 timestamp="2024-01-15T10:30:00+00:00",
-                artist="Artist", title="Song",
+                artist="Artist",
+                title="Song",
             ),
         ]
         output = format_log(records)

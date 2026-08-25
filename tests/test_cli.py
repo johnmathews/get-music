@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,14 +18,17 @@ from gm.cli import (
 class TestDetectInputType:
     """Test input type detection from CLI arguments."""
 
-    @pytest.mark.parametrize("url", [
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "https://youtube.com/watch?v=dQw4w9WgXcQ",
-        "https://youtu.be/dQw4w9WgXcQ",
-        "https://www.youtube.com/shorts/abc123",
-        "https://music.youtube.com/watch?v=abc123",
-        "http://youtube.com/watch?v=abc123",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtu.be/dQw4w9WgXcQ",
+            "https://www.youtube.com/shorts/abc123",
+            "https://music.youtube.com/watch?v=abc123",
+            "http://youtube.com/watch?v=abc123",
+        ],
+    )
     def test_detects_youtube_urls(self, url: str) -> None:
         assert detect_input_type(url) == InputType.YOUTUBE_URL
 

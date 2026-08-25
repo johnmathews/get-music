@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import mutagen
 import pytest
 
 from gm.metadata import (
     AudioMetadata,
     _normalized_prefix_end,
     _strip_artist_prefix,
+    build_destination_path,
     check_destination_exists,
     check_video_id_exists,
     extract_video_id_from_filename,
@@ -21,15 +23,14 @@ from gm.metadata import (
     normalize_date,
     prompt_batch_metadata,
     prompt_duplicate_action,
+    prompt_metadata,
     prompt_title_only,
     read_metadata,
     reembed_thumbnail_ssh,
-    write_metadata,
-    write_metadata_ssh,
-    prompt_metadata,
     sanitize_filename,
     suggest_match,
-    build_destination_path,
+    write_metadata,
+    write_metadata_ssh,
 )
 
 
@@ -65,8 +66,10 @@ class TestHumanizeName:
         assert humanize_name("") == ""
 
     def test_preserves_spaced_dash_separator(self) -> None:
-        assert humanize_name("Classical Music for Reading - Mozart, Chopin") == \
-            "Classical Music for Reading - Mozart, Chopin"
+        assert (
+            humanize_name("Classical Music for Reading - Mozart, Chopin")
+            == "Classical Music for Reading - Mozart, Chopin"
+        )
 
 
 class TestNormalizeDate:
@@ -302,6 +305,7 @@ class TestReadMetadata:
 
     def test_falls_back_to_file_creation_date(self, tmp_path: Path) -> None:
         import re
+
         f = tmp_path / "no-date.mp3"
         f.write_bytes(b"\x00" * 100)
         meta = read_metadata(f)
@@ -434,7 +438,9 @@ class TestPromptMetadata:
     @patch("builtins.input", side_effect=["", "", "", ""])
     def test_accepts_defaults(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
-            artist="Default Artist", album="Default Album", title="Default Title",
+            artist="Default Artist",
+            album="Default Album",
+            title="Default Title",
             date="2024",
         )
         result = prompt_metadata(defaults)
@@ -472,8 +478,11 @@ class TestPromptMetadata:
     @patch("builtins.input", side_effect=["", "", "", ""])
     def test_preserves_description_and_track(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
-            artist="Artist", album="Album", title="Song",
-            description="A live recording from 1969", track_number="3",
+            artist="Artist",
+            album="Album",
+            title="Song",
+            description="A live recording from 1969",
+            track_number="3",
         )
         result = prompt_metadata(defaults)
         assert result.description == "A live recording from 1969"
@@ -482,7 +491,9 @@ class TestPromptMetadata:
     @patch("builtins.input", side_effect=["", "", "", "-"])
     def test_hyphen_clears_default(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
-            artist="Artist", album="Album", title="Song",
+            artist="Artist",
+            album="Album",
+            title="Song",
             date="2024",
         )
         result = prompt_metadata(defaults)
@@ -492,7 +503,9 @@ class TestPromptMetadata:
     @patch("builtins.input", side_effect=["", "", "", "  "])
     def test_space_clears_default(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
-            artist="Artist", album="Album", title="Song",
+            artist="Artist",
+            album="Album",
+            title="Song",
             date="2024",
         )
         result = prompt_metadata(defaults)
@@ -546,8 +559,10 @@ class TestPromptMetadataSingle:
     @patch("builtins.input", side_effect=["", "", "", ""])
     def test_single_preserves_description(self, mock_input: object, *_mocks: object) -> None:
         defaults = AudioMetadata(
-            artist="Artist", title="Song",
-            description="Live recording", track_number="1",
+            artist="Artist",
+            title="Song",
+            description="Live recording",
+            track_number="1",
         )
         result = prompt_metadata(defaults, single=True)
         assert result.description == "Live recording"
@@ -617,9 +632,7 @@ class TestListExistingArtists:
 
     @patch("gm.metadata.ssh_run")
     def test_returns_list(self, mock_ssh: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess(
-            [], 0, "Led-Zeppelin\nPink-Floyd\nThe-Beatles\n", ""
-        )
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "Led-Zeppelin\nPink-Floyd\nThe-Beatles\n", "")
         result = list_existing_artists()
         assert result == ["Led-Zeppelin", "Pink-Floyd", "The-Beatles"]
 
@@ -639,9 +652,7 @@ class TestListExistingAlbums:
 
     @patch("gm.metadata.ssh_run")
     def test_returns_list(self, mock_ssh: MagicMock) -> None:
-        mock_ssh.return_value = subprocess.CompletedProcess(
-            [], 0, "Led-Zeppelin-IV\nPhysical-Graffiti\n", ""
-        )
+        mock_ssh.return_value = subprocess.CompletedProcess([], 0, "Led-Zeppelin-IV\nPhysical-Graffiti\n", "")
         result = list_existing_albums("Led-Zeppelin")
         assert result == ["Led-Zeppelin-IV", "Physical-Graffiti"]
 
@@ -689,14 +700,20 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led Zeppelin"])
-    @patch("builtins.input", side_effect=[
-        "led zeppelin",  # artist prompt — case-insensitive match, no suggestion needed
-        "Stairway",      # title prompt
-        "IV",            # album prompt
-        "1971",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "led zeppelin",  # artist prompt — case-insensitive match, no suggestion needed
+            "Stairway",  # title prompt
+            "IV",  # album prompt
+            "1971",  # date prompt
+        ],
+    )
     def test_silent_match_when_case_insensitive_equals_input(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -704,15 +721,21 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
-    @patch("builtins.input", side_effect=[
-        "Led Zeplin",    # artist prompt — typo, fuzzy matches Led-Zeppelin
-        "y",             # "Did you mean 'Led-Zeppelin'?"
-        "Stairway",      # title prompt
-        "IV",            # album prompt
-        "1971",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "Led Zeplin",  # artist prompt — typo, fuzzy matches Led-Zeppelin
+            "y",  # "Did you mean 'Led-Zeppelin'?"
+            "Stairway",  # title prompt
+            "IV",  # album prompt
+            "1971",  # date prompt
+        ],
+    )
     def test_suggests_directory_name_for_typo(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -720,15 +743,21 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Led-Zeppelin"])
-    @patch("builtins.input", side_effect=[
-        "Led Zeplin",    # artist prompt — typo
-        "n",             # reject suggestion
-        "Stairway",      # title prompt
-        "IV",            # album prompt
-        "1971",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "Led Zeplin",  # artist prompt — typo
+            "n",  # reject suggestion
+            "Stairway",  # title prompt
+            "IV",  # album prompt
+            "1971",  # date prompt
+        ],
+    )
     def test_rejects_artist_suggestion(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -736,14 +765,20 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Ex-Re"])
-    @patch("builtins.input", side_effect=[
-        "Ex:Re",         # artist prompt — colon sanitizes to same dir, keep as-is
-        "Romance",       # title prompt
-        "Ex:Re",         # album prompt
-        "2019",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "Ex:Re",  # artist prompt — colon sanitizes to same dir, keep as-is
+            "Romance",  # title prompt
+            "Ex:Re",  # album prompt
+            "2019",  # date prompt
+        ],
+    )
     def test_keeps_special_chars_when_sanitized_form_matches(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -752,15 +787,21 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["Jay-Z"])
-    @patch("builtins.input", side_effect=[
-        "jay z",         # artist prompt — fuzzy matches Jay-Z
-        "y",             # "Did you mean 'Jay-Z'?"
-        "99 Problems",   # title prompt
-        "The Black Album",  # album prompt
-        "2003",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "jay z",  # artist prompt — fuzzy matches Jay-Z
+            "y",  # "Did you mean 'Jay-Z'?"
+            "99 Problems",  # title prompt
+            "The Black Album",  # album prompt
+            "2003",  # date prompt
+        ],
+    )
     def test_preserves_hyphen_in_artist_name(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -768,14 +809,20 @@ class TestPromptMetadataWithSuggestion:
 
     @patch("gm.metadata.list_existing_albums", return_value=[])
     @patch("gm.metadata.list_existing_artists", return_value=["AC-DC"])
-    @patch("builtins.input", side_effect=[
-        "AC/DC",         # artist prompt — slash sanitizes to same dir
-        "Hells Bells",   # title prompt
-        "Back-In-Black", # album prompt
-        "1980",          # date prompt
-    ])
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "AC/DC",  # artist prompt — slash sanitizes to same dir
+            "Hells Bells",  # title prompt
+            "Back-In-Black",  # album prompt
+            "1980",  # date prompt
+        ],
+    )
     def test_keeps_slash_when_sanitized_form_matches(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         defaults = AudioMetadata()
         result = prompt_metadata(defaults)
@@ -789,7 +836,10 @@ class TestPromptBatchMetadata:
     @patch("gm.metadata.list_existing_artists", return_value=[])
     @patch("builtins.input", side_effect=["Led Zeppelin", "IV", "1971"])
     def test_prompts_shared_fields(
-        self, mock_input: MagicMock, mock_artists: MagicMock, mock_albums: MagicMock,
+        self,
+        mock_input: MagicMock,
+        mock_artists: MagicMock,
+        mock_albums: MagicMock,
     ) -> None:
         result = prompt_batch_metadata()
         assert result.artist == "Led Zeppelin"
@@ -847,8 +897,13 @@ class TestWriteMetadata:
         mock_file.return_value = mock_audio
 
         meta = AudioMetadata(
-            artist="Artist", album="Album", title="Song",
-            genre="Rock", date="2024", description="Desc", track_number="3",
+            artist="Artist",
+            album="Album",
+            title="Song",
+            genre="Rock",
+            date="2024",
+            description="Desc",
+            track_number="3",
         )
         write_metadata(tmp_path / "song.mp3", meta)
 
@@ -881,11 +936,20 @@ class TestWriteMetadata:
         # Should not raise
         write_metadata(tmp_path / "song.mp3", meta)
 
-    @patch("gm.metadata.mutagen.File", side_effect=Exception("bad file"))
-    def test_handles_exception(self, mock_file: MagicMock, tmp_path: Path) -> None:
+    @patch("gm.metadata.mutagen.File", side_effect=mutagen.MutagenError("bad file"))
+    def test_handles_mutagen_error(
+        self, mock_file: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         meta = AudioMetadata(artist="Artist", title="Song")
-        # Should not raise
+        # Should not raise, but should tell the user
         write_metadata(tmp_path / "song.mp3", meta)
+        assert "Could not open file for tagging" in capsys.readouterr().out
+
+    @patch("gm.metadata.mutagen.File", side_effect=PermissionError("denied"))
+    def test_handles_os_error(self, mock_file: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        meta = AudioMetadata(artist="Artist", title="Song")
+        write_metadata(tmp_path / "song.mp3", meta)
+        assert "Could not open file for tagging" in capsys.readouterr().out
 
     @patch("gm.metadata.mutagen.File")
     def test_handles_unsupported_tag(self, mock_file: MagicMock, tmp_path: Path) -> None:
@@ -898,14 +962,17 @@ class TestWriteMetadata:
         write_metadata(tmp_path / "song.mp3", meta)
 
     @patch("gm.metadata.mutagen.File")
-    def test_handles_save_failure(self, mock_file: MagicMock, tmp_path: Path) -> None:
+    def test_handles_save_failure(
+        self, mock_file: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         mock_audio = MagicMock()
-        mock_audio.save.side_effect = Exception("save failed")
+        mock_audio.save.side_effect = mutagen.MutagenError("save failed")
         mock_file.return_value = mock_audio
 
         meta = AudioMetadata(artist="Artist", title="Song")
-        # Should not raise even if save fails
+        # Should not raise even if save fails, but should tell the user
         write_metadata(tmp_path / "song.mp3", meta)
+        assert "Could not save metadata tags" in capsys.readouterr().out
 
 
 class TestWriteMetadataSsh:
@@ -956,7 +1023,12 @@ class TestWriteMetadataSsh:
     def test_opus_includes_all_fields(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(
-            artist="A", album="B", title="C", genre="Rock", date="2024", track_number="5",
+            artist="A",
+            album="B",
+            title="C",
+            genre="Rock",
+            date="2024",
+            track_number="5",
         )
         write_metadata_ssh("/mnt/nfs/music/A/B/C.opus", meta)
 
@@ -986,7 +1058,12 @@ class TestWriteMetadataSsh:
     def test_ffmpeg_includes_all_fields(self, mock_ssh: MagicMock) -> None:
         mock_ssh.return_value = subprocess.CompletedProcess([], 0, "", "")
         meta = AudioMetadata(
-            artist="A", album="B", title="C", genre="Rock", date="2024", track_number="5",
+            artist="A",
+            album="B",
+            title="C",
+            genre="Rock",
+            date="2024",
+            track_number="5",
         )
         write_metadata_ssh("/mnt/nfs/music/A/B/C.mp3", meta)
 
@@ -1164,10 +1241,14 @@ class TestArtistStrippingInPrompt:
 
     @patch("builtins.input", side_effect=["Joe Bloggs", "", "", "2024"])
     def test_prompt_metadata_strips_artist_from_title(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
-            artist="Joe Bloggs", album="Album", title="Joe Bloggs - My Song",
+            artist="Joe Bloggs",
+            album="Album",
+            title="Joe Bloggs - My Song",
         )
         result = prompt_metadata(defaults)
         assert result.title == "My Song"
@@ -1175,17 +1256,23 @@ class TestArtistStrippingInPrompt:
 
     @patch("builtins.input", side_effect=["Joe Bloggs", "", "", "2024"])
     def test_prompt_metadata_no_strip_when_no_match(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
-            artist="Joe Bloggs", album="Album", title="Unrelated Title",
+            artist="Joe Bloggs",
+            album="Album",
+            title="Unrelated Title",
         )
         result = prompt_metadata(defaults)
         assert result.title == "Unrelated Title"
 
     @patch("builtins.input", side_effect=["Ex:Re", "", "", "2019"])
     def test_prompt_metadata_strips_artist_from_title_and_album_follows(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
             artist="BBC Radio 6 Music",
@@ -1198,7 +1285,9 @@ class TestArtistStrippingInPrompt:
 
     @patch("builtins.input", side_effect=["Adam Barrett", "", "", "2023"])
     def test_prompt_metadata_album_defaults_to_title(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(
             artist="Adam Barrett",
@@ -1237,7 +1326,9 @@ class TestGoBack:
 
     @patch("builtins.input", side_effect=["Typo Artist", "<", "Good Artist", "", "", "2024"])
     def test_back_from_title_to_artist(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(artist="Def Artist", title="Song")
         result = prompt_metadata(defaults)
@@ -1245,7 +1336,9 @@ class TestGoBack:
 
     @patch("builtins.input", side_effect=["Artist", "Title", "<", "Better Title", "", "2024"])
     def test_back_from_album_to_title(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(artist="Artist", title="Song")
         result = prompt_metadata(defaults)
@@ -1254,7 +1347,9 @@ class TestGoBack:
 
     @patch("builtins.input", side_effect=["Artist", "Title", "Album", "<", "New Album", "2024"])
     def test_back_from_date_to_album(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         defaults = AudioMetadata(artist="Artist", title="Song")
         result = prompt_metadata(defaults)
@@ -1262,7 +1357,9 @@ class TestGoBack:
 
     @patch("builtins.input", side_effect=["<", "Artist", "", "", "2024"])
     def test_back_at_first_field_stays(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         """'<' at the first field just re-prompts the same field."""
         defaults = AudioMetadata(artist="Def", title="Song")
@@ -1271,7 +1368,9 @@ class TestGoBack:
 
     @patch("builtins.input", side_effect=["Artist", "<", "Fixed", "", "", "2024"])
     def test_back_from_title_single_mode(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         """In single mode (YouTube), back from title goes to artist."""
         defaults = AudioMetadata(artist="Artist", title="Song")
@@ -1287,14 +1386,18 @@ class TestGoBackBatch:
 
     @patch("builtins.input", side_effect=["Artist", "<", "Better Artist", "", "2024"])
     def test_back_from_album_to_artist(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         result = prompt_batch_metadata()
         assert result.artist == "Better Artist"
 
     @patch("builtins.input", side_effect=["Artist", "Album", "<", "New Album", "2024"])
     def test_back_from_date_to_album(
-        self, mock_input: MagicMock, *_mocks: object,
+        self,
+        mock_input: MagicMock,
+        *_mocks: object,
     ) -> None:
         result = prompt_batch_metadata()
         assert result.album == "New Album"

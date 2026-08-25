@@ -83,20 +83,21 @@ def bold_red(text: str) -> str:
 
 # --- Emoji constants ---
 
+
 def _emoji(char: str) -> str:
     return f"{char} " if _COLOR else ""
 
 
-E_MUSIC: str = _emoji("\U0001f3b5")      # 🎵
-E_CHECK: str = _emoji("\u2705")           # ✅
-E_DONE: str = _emoji("\U0001f389")        # 🎉
-E_SKIP: str = _emoji("\u23ed\ufe0f")      # ⏭️
-E_WARN: str = _emoji("\u26a0\ufe0f")      # ⚠️
-E_ERROR: str = _emoji("\u274c")           # ❌
-E_SEARCH: str = _emoji("\U0001f50d")      # 🔍
-E_WRITE: str = _emoji("\u270f\ufe0f")     # ✏️
-E_SEND: str = _emoji("\U0001f4e4")        # 📤
-E_FOLDER: str = _emoji("\U0001f4c2")      # 📂
-E_LINK: str = _emoji("\U0001f517")        # 🔗
+E_MUSIC: str = _emoji("\U0001f3b5")  # 🎵
+E_CHECK: str = _emoji("\u2705")  # ✅
+E_DONE: str = _emoji("\U0001f389")  # 🎉
+E_SKIP: str = _emoji("\u23ed\ufe0f")  # ⏭️
+E_WARN: str = _emoji("\u26a0\ufe0f")  # ⚠️
+E_ERROR: str = _emoji("\u274c")  # ❌
+E_SEARCH: str = _emoji("\U0001f50d")  # 🔍
+E_WRITE: str = _emoji("\u270f\ufe0f")  # ✏️
+E_SEND: str = _emoji("\U0001f4e4")  # 📤
+E_FOLDER: str = _emoji("\U0001f4c2")  # 📂
+E_LINK: str = _emoji("\U0001f517")  # 🔗
 E_SCISSORS: str = _emoji("\u2702\ufe0f")  # ✂️
-E_BROOM: str = _emoji("\U0001f9f9")       # 🧹
+E_BROOM: str = _emoji("\U0001f9f9")  # 🧹

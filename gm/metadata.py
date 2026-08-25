@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import difflib
-import os
 import re
 import shlex
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from enum import Enum, auto
 from pathlib import Path, PurePosixPath
+from typing import Any, Final
 
 import mutagen
 
-from gm.ui import E_WARN, E_ERROR, bold, bold_cyan, bold_yellow, cyan, dim, yellow
-from gm.ssh import ssh_run, quote_path
-
+from gm.ssh import quote_path, ssh_run
+from gm.ui import E_ERROR, E_WARN, bold, bold_cyan, bold_yellow, cyan, dim, yellow
 
 MUSIC_ROOT = "/mnt/nfs/music"
 YOUTUBE_ROOT = "/mnt/nfs/music/youtube"
@@ -65,7 +65,10 @@ def sanitize_filename(name: str) -> str:
 
 
 def build_destination_path(
-    meta: AudioMetadata, extension: str, *, video_id: str = "",
+    meta: AudioMetadata,
+    extension: str,
+    *,
+    video_id: str = "",
     music_root: str = MUSIC_ROOT,
 ) -> str:
     """Build the full destination path on the LXC from metadata."""
@@ -86,7 +89,8 @@ def read_metadata(path: Path) -> AudioMetadata:
 
     try:
         audio = mutagen.File(path, easy=True)
-    except Exception:
+    except (mutagen.MutagenError, OSError) as exc:
+        print(f"{E_WARN}{yellow('Could not read tags from')} {cyan(path.name)}: {dim(str(exc))}")
         audio = None
 
     if audio is not None and audio.tags:
@@ -154,11 +158,7 @@ def _parse_youtube_filename(stem: str) -> dict[str, str] | None:
         candidate_artist, _, candidate_title = rest.partition(" - ")
         candidate_artist = candidate_artist.strip()
         candidate_title = candidate_title.strip()
-        if (
-            candidate_artist
-            and candidate_title
-            and len(candidate_artist.split()) <= _MAX_ARTIST_WORDS
-        ):
+        if candidate_artist and candidate_title and len(candidate_artist.split()) <= _MAX_ARTIST_WORDS:
             return {
                 "artist": candidate_artist,
                 "title": candidate_title,
@@ -199,14 +199,19 @@ def _file_creation_date(path: Path) -> str:
         stat = path.stat()
         # Use birth time (st_birthtime) on macOS, fall back to mtime
         ts = getattr(stat, "st_birthtime", None) or stat.st_mtime
-        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d")
     except OSError:
         return ""
 
 
 def _first_tag(audio: mutagen.FileType, key: str) -> str:
     """Extract the first value of a tag, or empty string."""
-    values = audio.tags.get(key)
+    # mutagen declares ``FileType.tags = None``; concrete formats replace it
+    # with an untyped dict-like container, so treat it as Any here.
+    tags: Any = audio.tags
+    if tags is None:
+        return ""
+    values = tags.get(key)
     if values and isinstance(values, list):
         return str(values[0])
     if values:
@@ -226,10 +231,15 @@ _TAG_MAP = {
 
 
 def write_metadata(path: Path, meta: AudioMetadata) -> None:
-    """Write metadata tags back into an audio file. Best-effort."""
+    """Write metadata tags back into an audio file.
+
+    Best-effort: if mutagen cannot open or save the file a warning is
+    printed and the file is left as-is, so the import can still proceed.
+    """
     try:
         audio = mutagen.File(path, easy=True)
-    except Exception:
+    except (mutagen.MutagenError, OSError) as exc:
+        print(f"{E_WARN}{yellow('Could not open file for tagging:')} {dim(str(exc))}")
         return
     if audio is None:
         return
@@ -246,8 +256,8 @@ def write_metadata(path: Path, meta: AudioMetadata) -> None:
 
     try:
         audio.save()
-    except Exception:
-        pass
+    except (mutagen.MutagenError, OSError) as exc:
+        print(f"{E_WARN}{yellow('Could not save metadata tags:')} {dim(str(exc))}")
 
 
 def reembed_thumbnail_ssh(audio_path: str, thumb_path: str) -> bool:
@@ -305,12 +315,7 @@ def _write_metadata_mutagen_ssh(dest: str, meta: AudioMetadata) -> None:
         else:
             statements.append(f"a.pop({tag!r},None)")
 
-    script = (
-        "from mutagen.oggopus import OggOpus;"
-        f"a=OggOpus({dest!r});"
-        + ";".join(statements)
-        + ";a.save()"
-    )
+    script = f"from mutagen.oggopus import OggOpus;a=OggOpus({dest!r});" + ";".join(statements) + ";a.save()"
     result = ssh_run(f"python3 -c {shlex.quote(script)}")
     if result.returncode != 0:
         print(f"{E_ERROR}{yellow('Metadata rewrite failed — tags from yt-dlp may be stale')}")
@@ -350,11 +355,7 @@ def write_metadata_ssh(dest: str, meta: AudioMetadata, *, thumb_file: str = "") 
 
     p = PurePosixPath(dest)
     tmp = str(p.parent / f"{p.stem}.gm-tmp{p.suffix}")
-    ffmpeg_cmd = shlex.join(
-        ["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy"]
-        + metadata_args
-        + [tmp]
-    )
+    ffmpeg_cmd = shlex.join(["ffmpeg", "-y", "-i", dest, "-map", "0", "-c", "copy", *metadata_args, tmp])
     result = ssh_run(f"{ffmpeg_cmd} && mv {quote_path(tmp)} {quote_path(dest)}")
     if result.returncode != 0:
         ssh_run(f"rm -f {quote_path(tmp)}")
@@ -490,7 +491,9 @@ def _strip_artist_prefix(title: str, artist: str) -> str:
 
 
 def prompt_metadata(
-    defaults: AudioMetadata, *, single: bool = False,
+    defaults: AudioMetadata,
+    *,
+    single: bool = False,
     music_root: str = MUSIC_ROOT,
 ) -> AudioMetadata:
     """Prompt the user to confirm or override metadata fields.
@@ -509,7 +512,7 @@ def prompt_metadata(
             val = _prompt_field("Artist", defaults.artist)
             if val is _BACK:
                 continue  # already at first field
-            artist = val  # type: ignore[assignment]
+            artist = val
             artist = _apply_suggestion(artist, list_existing_artists(music_root))
             step = 1
         elif step == 1:
@@ -517,7 +520,7 @@ def prompt_metadata(
             if val is _BACK:
                 step = 0
                 continue
-            title = val  # type: ignore[assignment]
+            title = val
             step = 2
         elif step == 2:
             album_default = title
@@ -525,7 +528,7 @@ def prompt_metadata(
             if val is _BACK:
                 step = 1
                 continue
-            album = val  # type: ignore[assignment]
+            album = val
             album = _apply_suggestion(album, list_existing_albums(artist, music_root))
             step = 3
         elif step == 3:
@@ -533,7 +536,7 @@ def prompt_metadata(
             if val is _BACK:
                 step = 2
                 continue
-            date = val  # type: ignore[assignment]
+            date = val
             break
 
     return AudioMetadata(
@@ -546,10 +549,16 @@ def prompt_metadata(
     )
 
 
-_BACK = object()  # sentinel for "go back to previous field"
+class _Nav(Enum):
+    """Navigation sentinels returned by :func:`_prompt_field` instead of a value."""
+
+    BACK = auto()
 
 
-def _prompt_field(label: str, default: str) -> str | object:
+_BACK: Final = _Nav.BACK  # user typed '<': go back to the previous field
+
+
+def _prompt_field(label: str, default: str) -> str | _Nav:
     """Prompt for a single metadata field with a default value.
 
     Type '-' or a blank space to clear a default value (set it to empty string).
@@ -580,7 +589,7 @@ def prompt_batch_metadata() -> AudioMetadata:
             val = _prompt_field("Artist", "")
             if val is _BACK:
                 continue
-            artist = val  # type: ignore[assignment]
+            artist = val
             artist = _apply_suggestion(artist, list_existing_artists())
             step = 1
         elif step == 1:
@@ -588,7 +597,7 @@ def prompt_batch_metadata() -> AudioMetadata:
             if val is _BACK:
                 step = 0
                 continue
-            album = val  # type: ignore[assignment]
+            album = val
             album = _apply_suggestion(album, list_existing_albums(artist))
             step = 2
         elif step == 2:
@@ -596,14 +605,16 @@ def prompt_batch_metadata() -> AudioMetadata:
             if val is _BACK:
                 step = 1
                 continue
-            date = val  # type: ignore[assignment]
+            date = val
             break
 
     return AudioMetadata(artist=artist, album=album, date=date)
 
 
 def prompt_title_only(
-    defaults: AudioMetadata, batch: AudioMetadata, track_number: int,
+    defaults: AudioMetadata,
+    batch: AudioMetadata,
+    track_number: int,
 ) -> AudioMetadata:
     """Merge batch metadata with per-file defaults, prompt only for title."""
     artist = batch.artist or defaults.artist
@@ -613,7 +624,7 @@ def prompt_title_only(
     while True:
         val = _prompt_field("Title", _strip_artist_prefix(defaults.title, artist))
         if val is not _BACK:
-            title: str = val  # type: ignore[assignment]
+            title = val
             break
 
     return AudioMetadata(
