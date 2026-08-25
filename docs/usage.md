@@ -11,7 +11,7 @@ via `python -m gm.cli`.
 
 ### Prerequisites
 
-- **On your Mac:** Python 3.12+, `ffmpeg` (for video-to-audio conversion), SSH configured for `music` host
+- **On your Mac:** Python 3.13+, `ffmpeg` (for video-to-audio conversion), SSH configured for `music` host
 - **On the LXC:** `yt-dlp`, `ffmpeg`
 
 ## Usage
@@ -51,6 +51,10 @@ a YouTube video ID in the filename (e.g., `Song-[dQw4w9WgXcQ].mp4`), the thumbna
 if not embedded. Intermediate files created during processing (extracted audio, thumbnails) are automatically cleaned up
 after transfer.
 
+Tag writing and cover-art embedding are best-effort: if mutagen cannot open, tag, or save the file (unsupported
+container, corrupt file, permission error), `gm` prints a warning and continues with the transfer rather than
+aborting the import.
+
 All metadata from the source file is preserved through extraction. Rich metadata fields like description and comment
 (common in YouTube-sourced videos) are carried through unchanged into the final audio file — they are read from the
 source, passed through the processing pipeline, and written back. The interactive prompt only asks for core cataloging
@@ -69,7 +73,7 @@ Search recursively? [y/N]: n
 Found 12 file(s)
 Same album? [y/N]: y
 
-Shared metadata for all files (press Enter to leave empty):
+Shared metadata for all files (press Enter to leave empty, < to go back):
   Artist: Led Zeppelin
   Album: IV
   Date: 1971
@@ -87,14 +91,15 @@ If files are from different artists or albums, answer "n" to get full metadata p
 Same album? [y/N]: n
 
 [1/5] song-a.mp3
-  Artist []: Pink Floyd
-  Album []: The Wall
+  Artist: Pink Floyd
   Title [song-a]: Another Brick in the Wall
-  Date []: 1979
+  Album [Another Brick in the Wall]: The Wall
+  Date [2024-01-15]: 1979
 ```
 
-If a file fails during batch import (e.g., transfer error), `gm` logs the error and continues with the remaining files. A
-summary of successes and failures is printed at the end.
+If a file fails during batch import (transfer, SSH, or ffmpeg error, a local I/O error, or an import-log database
+error), `gm` prints the error and continues with the remaining files. A summary of successes and failures is printed at
+the end. Anything else — for example stdin being closed mid-prompt, or Ctrl+C — aborts the whole batch.
 
 ### View import history
 
@@ -133,11 +138,14 @@ gm help
 For every file processed, you'll be shown the detected metadata and can accept defaults or override:
 
 ```
-Metadata (press Enter to accept default):
+Metadata (press Enter to accept default, < to go back):
   Artist [Channel Name]: Actual Artist
   Title [Video Title]:
-  Date []:
+  Album [Video Title]:
+  Date [2024-01-15]:
 ```
+
+Fields are prompted in the order artist, title, album, date (the album default is whatever you entered for the title).
 
 - Press Enter to accept the value in brackets
 - Type a new value to override
@@ -171,7 +179,7 @@ When you type an artist or album name, `gm` checks existing directories on the s
 
 ```
   Artist: Led Zeplin
-  Did you mean 'Led-Zeppelin'? [Y/n]:
+  Did you mean Led-Zeppelin? [Y/n]:
 ```
 
 This prevents library fragmentation by catching:

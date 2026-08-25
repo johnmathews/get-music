@@ -44,7 +44,7 @@ directory, processes the audio/metadata/artwork, and stores it on a remote NFS-m
 
 | Where | What                                                |
 | ----- | --------------------------------------------------- |
-| Mac   | Python 3.12+, `ffmpeg`, SSH config for `music` host |
+| Mac   | Python 3.13+, `ffmpeg`, SSH config for `music` host |
 | LXC   | `yt-dlp`, `ffmpeg`                                  |
 
 ## Usage
@@ -66,18 +66,27 @@ gm help
 - `gm/metadata.py` — Audio metadata extraction (mutagen), user prompts, duplicate checks, artist/album lookup
 - `gm/history.py` — SQLite import log for tracking imports and duplicate detection
 - `gm/ssh.py` — Shared SSH utilities (ssh_run with connection multiplexing, timeouts, SSH_HOST)
-- `tests/` — pytest test suite (100% coverage)
+- `tests/` — pytest test suite (~96% coverage; the uncovered lines are the mutagen `_embed_*` bodies, which tests mock)
 - `docs/usage.md` — Detailed usage documentation
 
 ## Development
 
 ```bash
-uv sync                              # Install dependencies
-uv run pytest                        # Run tests
-uv run pytest -v                     # Run tests with verbose output
-uv run coverage run -m pytest        # Run tests with coverage
-uv run coverage html                 # Generate HTML coverage report
+uv sync                              # Install dependencies (incl. ruff, pyright, pytest-cov)
+uv run python -m pytest              # Run tests
+uv run python -m pytest -v           # Run tests with verbose output
+uv run python -m pytest --cov=gm     # Run tests with a coverage report
+uv run ruff check .                  # Lint (add --fix to auto-fix)
+uv run ruff format .                 # Format (CI runs `ruff format --check .`)
+uv run pyright                       # Type-check gm/ (standard mode)
 ```
+
+Always use `uv run python -m pytest` rather than bare `uv run pytest`: a pyenv-global `pytest` can shadow the venv one.
+Likewise run `ruff`/`pyright` via `uv run` from the project venv so `mutagen` resolves (`uvx pyright` outside the venv
+reports bogus "mutagen could not be resolved" errors).
+
+CI (`.github/workflows/test.yml`) runs `ruff check`, `ruff format --check`, `pyright`, and `pytest --cov=gm` on every
+push and pull request. All four must pass before committing.
 
 ### Installation
 
@@ -87,6 +96,10 @@ uv tool install -e .                 # Install gm command on PATH
 
 ## Conventions
 
-- Type annotations required on all Python code
+- Type annotations required on all Python code; `pyright` (standard mode) must report 0 errors
+- Ruff config lives in `pyproject.toml` (line length 120, `py313` target, `E F I UP B SIM DTZ BLE PL RUF S110`)
+- No blind `except Exception` and no `try/except: pass` — catch the specific exceptions a call can raise
+  (`mutagen.MutagenError`, `OSError`, `subprocess.SubprocessError`, `sqlite3.Error`, …) and print a short warning when
+  a failure is tolerated; use `contextlib.suppress(...)` only where silence is the intended UX
 - TDD workflow: write tests before implementation
 - All SSH commands use `shlex.quote()` via `quote_path()` for defense-in-depth against shell injection from filenames
